@@ -1,0 +1,5 @@
+type: recursive
+max_tokens: 220
+overlap_tokens: 35
+separators: ["\n\n", "\n", ". ", "; ", ", "]
+

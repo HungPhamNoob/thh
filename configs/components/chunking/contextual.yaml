@@ -1,0 +1,9 @@
+type: contextual
+surrounding_chars: 700
+include_title: true
+base:
+  type: sentence
+  max_tokens: 170
+  overlap_sentences: 1
+  min_tokens: 12
+

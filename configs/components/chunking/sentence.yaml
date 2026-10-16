@@ -1,0 +1,5 @@
+type: sentence
+max_tokens: 180
+overlap_sentences: 1
+min_tokens: 12
+

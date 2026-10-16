@@ -1,0 +1,31 @@
+extends: ../base.yaml
+
+query:
+  type: nllb
+  model_name: facebook/nllb-200-distilled-600M
+  targets: [en, zh]
+  include_original: true
+  weight: 0.75
+
+chunk_retrievers:
+  - type: bm25
+    name: multilingual_bm25
+    k: 700
+    weight: 1.0
+  - type: asymmetric_transformers
+    name: medcpt
+    model_name: ncbi/MedCPT-Query-Encoder
+    document_model_name: ncbi/MedCPT-Article-Encoder
+    pooling: cls
+    max_length: 512
+    normalize_embeddings: true
+    k: 500
+    weight: 1.1
+
+reranker:
+  type: cross_encoder
+  model_name: ncbi/MedCPT-Cross-Encoder
+  max_length: 512
+  candidate_k: 250
+  output_k: 150
+

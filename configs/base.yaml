@@ -1,0 +1,62 @@
+seed: 42
+
+chunking:
+  type: sentence
+  max_tokens: 180
+  overlap_sentences: 1
+  min_tokens: 8
+
+query:
+  type: identity
+
+document_retrievers:
+  - type: bm25
+    name: doc_bm25
+    k1: 1.2
+    b: 0.75
+    k: 250
+    weight: 1.0
+
+chunk_retrievers:
+  - type: bm25
+    name: chunk_bm25
+    k1: 1.2
+    b: 0.75
+    k: 600
+    weight: 1.0
+
+fusion:
+  type: rrf
+  rank_constant: 60
+
+reranker:
+  type: none
+  candidate_k: 250
+  output_k: 150
+
+document_aggregation:
+  method: topk_mean
+  top_k: 3
+  position_decay: 0.0
+
+document_selection:
+  type: threshold_topk
+  min_k: 3
+  max_k: 10
+  relative_threshold: 0.15
+
+chunk_selection:
+  type: threshold_topk
+  min_k: 1
+  max_k: 3
+  relative_threshold: 0.35
+  per_document: true
+  global_max: 24
+
+retrieval:
+  cascade: true
+  document_pool: 250
+  chunk_pool: 600
+  document_stage_weight: 1.0
+  chunk_stage_weight: 1.25
+

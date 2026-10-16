@@ -1,0 +1,5 @@
+type: fixed
+size: 180
+overlap: 40
+min_tokens: 12
+

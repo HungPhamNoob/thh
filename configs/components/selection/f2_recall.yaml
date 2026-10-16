@@ -1,0 +1,5 @@
+type: threshold_topk
+min_k: 3
+max_k: 12
+relative_threshold: 0.15
+

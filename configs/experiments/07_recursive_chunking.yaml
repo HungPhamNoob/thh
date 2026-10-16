@@ -1,0 +1,14 @@
+extends: ../base.yaml
+
+chunking:
+  _replace_: true
+  type: recursive
+  max_tokens: 220
+  overlap_tokens: 35
+  separators: ["\n\n", "\n", ". ", "; ", ", "]
+
+retrieval:
+  cascade: false
+  document_pool: 300
+  chunk_pool: 800
+

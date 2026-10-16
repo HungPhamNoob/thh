@@ -1,0 +1,19 @@
+extends: ../base.yaml
+
+query:
+  type: local_llm
+  model_name: Qwen/Qwen2.5-7B-Instruct
+  modes: [keywords, entities, reasoning, pseudo_document]
+  max_new_tokens: 160
+  weight: 0.65
+  include_original: true
+
+fusion:
+  type: rrf
+  rank_constant: 30
+
+retrieval:
+  cascade: false
+  document_pool: 300
+  chunk_pool: 800
+

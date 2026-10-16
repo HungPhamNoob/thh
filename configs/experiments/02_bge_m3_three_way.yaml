@@ -1,0 +1,32 @@
+extends: ../base.yaml
+
+# BGE-M3 exposes dense, learned sparse and late-interaction views from one checkpoint.
+chunk_retrievers:
+  - type: bm25
+    name: chunk_bm25
+    k: 700
+    weight: 0.8
+  - type: bge_m3
+    name: bge_m3
+    mode: dense
+    max_length: 1024
+    k: 700
+    weight: 1.0
+  - type: bge_m3
+    name: bge_m3
+    mode: sparse
+    max_length: 1024
+    k: 700
+    weight: 0.9
+  - type: bge_m3
+    name: bge_m3
+    mode: colbert
+    max_length: 1024
+    k: 250
+    weight: 1.1
+
+retrieval:
+  cascade: true
+  document_pool: 300
+  chunk_pool: 700
+

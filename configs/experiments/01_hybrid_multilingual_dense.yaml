@@ -1,0 +1,38 @@
+extends: ../base.yaml
+
+document_retrievers:
+  - type: bm25
+    name: doc_bm25
+    k: 300
+    weight: 1.0
+  - type: dense
+    name: doc_mgte
+    model_name: Alibaba-NLP/gte-multilingual-base
+    trust_remote_code: true
+    normalize_embeddings: true
+    faiss_factory: HNSW32
+    k: 300
+    weight: 1.2
+
+chunk_retrievers:
+  - type: bm25
+    name: chunk_bm25
+    k: 700
+    weight: 1.0
+  - type: dense
+    name: chunk_mgte
+    model_name: Alibaba-NLP/gte-multilingual-base
+    trust_remote_code: true
+    normalize_embeddings: true
+    faiss_factory: HNSW32
+    k: 700
+    weight: 1.25
+
+reranker:
+  type: cross_encoder
+  model_name: Alibaba-NLP/gte-multilingual-reranker-base
+  trust_remote_code: true
+  max_length: 1024
+  candidate_k: 250
+  output_k: 150
+
