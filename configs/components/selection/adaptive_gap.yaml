@@ -1,0 +1,5 @@
+type: adaptive_gap
+min_k: 3
+max_k: 20
+search_after: 3
+

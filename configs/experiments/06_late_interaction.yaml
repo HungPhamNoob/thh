@@ -1,0 +1,19 @@
+extends: ../base.yaml
+
+chunk_retrievers:
+  - type: bm25
+    name: chunk_bm25
+    k: 800
+    weight: 0.8
+  - type: bge_m3
+    name: bge_m3_colbert
+    mode: colbert
+    max_length: 1024
+    k: 400
+    weight: 1.4
+
+document_aggregation:
+  method: logsumexp
+  temperature: 0.15
+  position_decay: 0.0
+

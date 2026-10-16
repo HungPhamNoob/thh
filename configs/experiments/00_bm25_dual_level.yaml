@@ -1,0 +1,4 @@
+extends: ../base.yaml
+
+# Fully local smoke-test baseline: document BM25 -> candidate chunks -> BM25.
+

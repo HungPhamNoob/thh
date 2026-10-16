@@ -1,0 +1,27 @@
+extends: ../base.yaml
+
+chunking:
+  _replace_: true
+  type: contextual
+  surrounding_chars: 700
+  include_title: true
+  base:
+    type: sentence
+    max_tokens: 170
+    overlap_sentences: 1
+    min_tokens: 8
+
+chunk_retrievers:
+  - type: bm25
+    name: contextual_bm25
+    k: 600
+    weight: 0.8
+  - type: dense
+    name: contextual_mgte
+    model_name: Alibaba-NLP/gte-multilingual-base
+    trust_remote_code: true
+    normalize_embeddings: true
+    faiss_factory: HNSW32
+    k: 600
+    weight: 1.3
+

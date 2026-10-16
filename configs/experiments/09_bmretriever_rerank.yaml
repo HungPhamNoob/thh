@@ -1,0 +1,25 @@
+extends: ../base.yaml
+
+chunk_retrievers:
+  - type: bm25
+    name: chunk_bm25
+    k: 700
+    weight: 0.9
+  - type: transformers_dense
+    name: bmretriever
+    model_name: BMRetriever/BMRetriever-410M
+    pooling: last_token
+    max_length: 512
+    query_prefix: "Instruct: Given a web search query, retrieve relevant biomedical passages.\nQuery: "
+    normalize_embeddings: true
+    faiss_factory: HNSW32
+    k: 700
+    weight: 1.3
+
+reranker:
+  type: cross_encoder
+  model_name: BAAI/bge-reranker-v2-m3
+  max_length: 1024
+  candidate_k: 250
+  output_k: 160
+

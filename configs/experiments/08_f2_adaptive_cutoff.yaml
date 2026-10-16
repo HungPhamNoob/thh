@@ -1,0 +1,18 @@
+extends: ../base.yaml
+
+document_selection:
+  _replace_: true
+  type: adaptive_gap
+  min_k: 4
+  max_k: 20
+  search_after: 3
+
+chunk_selection:
+  _replace_: true
+  type: adaptive_gap
+  min_k: 1
+  max_k: 5
+  search_after: 2
+  per_document: true
+  global_max: 40
+
