@@ -1,0 +1,6 @@
+[
+  {"id":1,"relevant_docs":["103","104"],"relevant_chunks":[{"doc_id":"103","chunk_text":"Warning signs of severe dengue include severe abdominal pain, persistent vomiting, bleeding, lethargy and difficulty breathing."},{"doc_id":"104","chunk_text":"重症登革热的警告信号包括剧烈腹痛、持续呕吐、出血、嗜睡和呼吸困难。"}]},
+  {"id":2,"relevant_docs":["102"],"relevant_chunks":[{"doc_id":"102","chunk_text":"Common management includes healthy eating, physical activity, glucose monitoring and prescribed medicines."}]},
+  {"id":3,"relevant_docs":["101"],"relevant_chunks":[{"doc_id":"101","chunk_text":"Tăng huyết áp thường không có triệu chứng rõ ràng nhưng làm tăng nguy cơ đột quỵ và bệnh tim."}]}
+]
+
