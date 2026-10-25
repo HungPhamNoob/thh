@@ -1,6 +1,6 @@
 # Đề bài R2AI2026 – ViBioMIR (Shared Task 3)
 
-Tổng hợp ngày 25/10/2026 từ trang thi Codabench, dataset card trên Hugging Face và leaderboard public. Khi BTC đổi luật, sửa file này trước rồi mới sửa code.
+Tổng hợp ngày 25/10/2026 từ trang thi Codabench, dataset card trên Hugging Face, leaderboard public và thông báo của BTC gửi các đội cùng ngày (luật khớp chunk mới, tắt kết quả chấm chi tiết). Khi BTC đổi luật, sửa file này trước rồi mới sửa code.
 
 - Trang thi: <https://leaderboard.aiguru.com.vn/competitions/15> (API công khai: `/api/competitions/15/`, leaderboard public: `/api/phases/44/get_leaderboard/`)
 - Dataset chính thức: <https://huggingface.co/datasets/AIGuruTinix/ViBioMIR>
@@ -42,13 +42,15 @@ Corpus theo ngôn ngữ (phân loại theo domain, đo ngày 25/10):
 
 **Cấp document.** Với mỗi query: `P = |D ∩ G| / |D|`, `R = |D ∩ G| / |G|`.
 
-**Cấp chunk.** Hai phía được chuẩn hoá: Unicode NFKC → giải mã HTML entity → chữ thường → gộp khoảng trắng → bỏ khoảng trắng hai đầu. Với chunk nộp `c` và chunk vàng `g` cùng query, cùng `doc_id`:
+**Cấp chunk.** Hai phía được chuẩn hoá: Unicode NFKC → giải mã HTML entity → chữ thường → gộp khoảng trắng → bỏ khoảng trắng hai đầu. Với chunk nộp `c` và chunk vàng `g` cùng query, cùng `doc_id`, tính hai tỉ lệ:
 
 ```
-overlap(c, g) = LCS_tokens(c, g) / |g|
+overlap_gold(c, g) = LCS_tokens(c, g) / |g|
+overlap_pred(c, g) = LCS_tokens(c, g) / |c|
 ```
 
-- Một chunk nộp là **đúng** nếu `overlap ≥ 0.4` với **ít nhất một** chunk vàng.
+- Một chunk nộp là **đúng** nếu tồn tại **ít nhất một** chunk vàng mà **cả hai** tỉ lệ đều ≥ 0,4.
+- Điều kiện `overlap_pred` được BTC bổ sung qua thông báo ngày 25/10/2026, áp dụng cho mọi lần chấm sau thông báo. Trước đó chỉ xét `overlap_gold`. Lúc kiểm tra lại cùng ngày, trang Evaluation trên Codabench vẫn chỉ ghi điều kiện cũ; coi thông báo là luật hiện hành.
 - `P = số chunk nộp đúng / tổng số chunk nộp`.
 - `R = số chunk vàng được tìm thấy / tổng số chunk vàng`.
 
@@ -57,9 +59,9 @@ overlap(c, g) = LCS_tokens(c, g) / |g|
 ### Hệ quả cho thiết kế
 
 1. **F2 là trung bình của F2 từng query**, không phải F2 của P/R trung bình. Ví dụ đội đứng đầu ngày 21/10 có P 0,2752 và R 0,6651; F2 tính từ hai số trung bình này là 0,518, còn leaderboard ghi 0,4909.
-2. **Precision chunk không ghép 1–1.** Hai chunk nộp cùng khớp một chunk vàng thì cả hai đều được tính đúng. Evaluator trong repo (`src/vibiomir/evaluation/official.py`) đang ghép 1–1 và tính F2 từ P/R trung bình, nên **chưa khớp luật**; xem ticket E1 trong [`plan.md`](plan.md).
-3. **overlap chỉ chia cho độ dài chunk vàng.** Chunk nộp dài hơn không bị phạt ở overlap và có thể phủ nhiều chunk vàng một lúc. Ngược lại, chunk nộp ngắn hơn 40% chunk vàng không bao giờ được tính đúng. Độ dài chunk là tham số phải tune. Trước khi thử chunk rất dài (gần cả tài liệu), hỏi BTC xem có giới hạn không.
-4. **Cách tách token của LCS chưa được công bố.** Repo đang giả định tách theo khoảng trắng sau chuẩn hoá. Nếu BTC cũng làm vậy, với tiếng Trung (gần như không có khoảng trắng) mỗi đoạn viết liền là một token. Khi đó chunk tiếng Trung chỉ nên cắt tại xuống dòng hoặc khoảng trắng, không cắt giữa câu, và text crawl phải giữ đúng ranh giới khoảng trắng của trang gốc.
+2. **Precision chunk không ghép 1–1.** Hai chunk nộp cùng khớp một chunk vàng thì cả hai đều được tính đúng. Evaluator trong repo (`src/vibiomir/evaluation/official.py`) đang ghép 1–1, tính F2 từ P/R trung bình và chỉ xét `overlap_gold`, nên **chưa khớp luật**; xem ticket E1 trong [`plan.md`](plan.md).
+3. **Độ dài chunk nộp phải xấp xỉ chunk vàng.** Nếu chunk nộp chứa trọn chunk vàng thì LCS = |g|, nên cần |c| ≤ 2,5·|g|. Nếu chunk nộp nằm gọn trong chunk vàng thì LCS = |c|, nên cần |c| ≥ 0,4·|g|. Nói cách khác, kể cả khi trúng đúng chỗ, chunk nộp chỉ được tính khi dài khoảng 0,4–2,5 lần chunk vàng; ngoài khoảng đó chắc chắn trượt. Chunk dài cỡ cả tài liệu không còn được tính. Vì vậy phải ước lượng cỡ chunk vàng (đoạn văn, vài câu hay vài đoạn) và cắt chunk theo đúng cỡ đó; đây là tham số quan trọng nhất ở cấp chunk.
+4. **Cách tách token của LCS chưa được công bố.** Repo đang giả định tách theo khoảng trắng sau chuẩn hoá. Nếu BTC cũng làm vậy, với tiếng Trung (gần như không có khoảng trắng) mỗi đoạn viết liền là một token. Khi đó chunk tiếng Trung chỉ nên cắt tại xuống dòng hoặc khoảng trắng, không cắt giữa câu, và text crawl phải giữ đúng ranh giới khoảng trắng của trang gốc. Với điều kiện `overlap_pred`, chunk tiếng Trung gồm nhiều đoạn chỉ khớp khi chunk vàng cũng có số đoạn tương đương.
 5. Chỉ id có trong `links_corpus` mới được tính là nhãn dương.
 
 ## 4. Định dạng nộp bài
@@ -81,6 +83,7 @@ overlap(c, g) = LCS_tokens(c, g) / |g|
 - `chunk_text` phải được trích từ tài liệu gốc, không được viết lại hoặc sinh mới. `chunk_order` là tuỳ chọn, số nguyên không âm.
 - Nén thành ZIP chứa **đúng một file `.json` ở gốc**, không có thư mục con, rồi tải lên mục *My Submissions*.
 - Giới hạn: public 10 bài/ngày; **private tổng cộng 5 bài**. Bài thiếu file hoặc thiếu câu không được chấm và không bị trừ lượt.
+- Từ 25/10/2026, file kết quả chấm chỉ còn điểm tổng và trạng thái chạy. BTC đã tắt phần kết quả chi tiết vì nó làm lộ thông tin đáp án, và đang yêu cầu các đội có dấu hiệu khai thác lỗ hổng này giải trình. Không có phản hồi theo từng query: mọi phân tích lỗi phải dựa trên dev set của đội.
 - Mỗi đội chỉ có một tài khoản được nộp bài; mỗi người chỉ thuộc một đội.
 
 ## 5. Mô hình và dữ liệu ngoài
@@ -111,13 +114,15 @@ Cả hai phase chấm trên cùng 1.200 query; hệ thống tự chia câu nào 
 | aichickenteam | 0,4083 | 0,4082 | 0,4083 | 0,244 / 0,552 | 0,245 / 0,551 |
 | BM25 Baseline (BTC) | 0,3764 | **0,5587** | 0,1941 | **0,881** / 0,515 | 0,340 / 0,176 |
 
-Baseline BM25 của BTC có doc F2 cao nhất bảng nhờ precision 0,88. Điều đó gợi ý mỗi query có ít tài liệu đúng và kết quả lexical top-1 thường trúng. Trong khi đó các đội dẫn đầu trả về quá nhiều tài liệu (P ≈ 0,25). Đòn bẩy lớn nhất: giữ precision cấp doc gần mức baseline, đồng thời kéo recall cấp chunk lên mức của top 1.
+Các điểm này được chấm theo luật chunk cũ (chỉ xét `overlap_gold`); kiểm tra lại sau thông báo 25/10 thì leaderboard chưa được chấm lại. Doc F2 vẫn so sánh được. Chunk F2 của các bài nộp chunk dài sẽ thấp hơn nếu chấm theo luật mới.
+
+Baseline BM25 của BTC có doc F2 cao nhất bảng nhờ precision 0,88. Điều đó gợi ý mỗi query có ít tài liệu đúng và kết quả lexical top-1 thường trúng. Trong khi đó các đội dẫn đầu trả về quá nhiều tài liệu (P ≈ 0,25). Đòn bẩy lớn nhất: giữ precision cấp doc gần mức baseline, đồng thời tăng recall cấp chunk bằng chunk có kích thước sát chunk vàng.
 
 ## 8. Câu hỏi cần gửi BTC
 
 Đầu mối liên hệ ghi trên trang thi: nguyetntm@dagoras.io, linhvtt@dagoras.io.
 
-1. `chunk_text` có giới hạn độ dài tối đa không?
+1. Các bài đã nộp trước thông báo 25/10 có được chấm lại theo luật chunk mới không? Trang Evaluation có được cập nhật không?
 2. `LCS_tokens` tách token thế nào, đặc biệt với tiếng Trung?
 3. `relevant_docs`/`doc_id` nên ghi số nguyên hay chuỗi?
 4. Hạn và mẫu trình bày của working notes paper?
