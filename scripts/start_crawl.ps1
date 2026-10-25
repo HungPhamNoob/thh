@@ -29,7 +29,8 @@ foreach ($job in $Jobs) {
     $arguments = $Commands[$job]
     if (-not $arguments) { Write-Warning "unknown job $job"; continue }
     if (Test-Running $arguments) { Write-Host "$job already running"; continue }
-    $stdout = Join-Path $Logs "$job.stdout"
+    # A fresh file per start: a killed job's worker processes may still hold the old one open.
+    $stdout = Join-Path $Logs ("{0}-{1:yyyyMMdd-HHmmss}.stdout" -f $job, (Get-Date))
     # Win32_Process.Create detaches the job from this console and its process tree.
     $line = "cmd.exe /c set PYTHONPATH=src&& `"$Python`" -m vibiomir $arguments > `"$stdout`" 2>&1"
     $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }
