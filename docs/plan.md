@@ -7,7 +7,7 @@ Bản lập ngày Chủ nhật 25/10/2026. Luật thi và số liệu nằm tron
 - **Mục tiêu**: FINAL ≥ 0,50 trên public trước 31/10 23:59 (đội đứng đầu hiện đạt 0,487) và giữ được mức đó ở private.
 - **Đường đi**:
   1. Trong 48 giờ có corpus đủ ~1,22M doc: PubMed qua API, cộng bản crawl công khai trên HF, rồi tự crawl phần còn thiếu.
-  2. BM25 trên toàn corpus, chỉ chọn ít doc (giữ precision cao như baseline của BTC), chunk đủ dài để đạt ngưỡng overlap → nộp bài đầu tiên ngày 26/10.
+  2. BM25 trên toàn corpus, chỉ chọn ít doc (giữ precision cao như baseline của BTC), chunk có độ dài sát chunk vàng (luật mới đòi LCS ≥ 40% cả độ dài chunk vàng lẫn chunk nộp) → nộp bài đầu tiên ngày 26/10.
   3. Thêm nhánh xuyên ngữ (dịch query + dense đa ngữ) và reranker.
   4. Tune số doc/chunk mỗi query bằng dev set và leaderboard.
 - **Việc phải làm ngay hôm nay**: xin quyền push repo, chốt tài khoản nộp bài của đội, tải dữ liệu chính thức, sửa evaluator cho khớp luật.
@@ -17,11 +17,11 @@ Bản lập ngày Chủ nhật 25/10/2026. Luật thi và số liệu nằm tron
 | Mảng | Tình trạng |
 |---|---|
 | Repo | Framework ablation đủ module (chunk, query, retrieval, fusion, rerank, aggregation, selection), nhưng chỉ chạy in-memory trên dữ liệu mẫu. Chưa có crawl/ingest, chưa có runner cho toàn corpus. |
-| Evaluator | Lệch luật ở hai điểm: ghép chunk 1–1, và tính F2 từ P/R trung bình thay vì trung bình F2 từng query (`competition.md` §3). |
+| Evaluator | Lệch luật ở ba điểm: ghép chunk 1–1; tính F2 từ P/R trung bình thay vì trung bình F2 từng query; chỉ xét LCS/\|g\|, thiếu điều kiện LCS/\|c\| ≥ 0,4 mà BTC bổ sung ngày 25/10 (`competition.md` §3). |
 | Dữ liệu | Chưa tải. BTC chỉ phát URL. Đã có ít nhất hai bản crawl công khai trên HF map đúng id chính thức (`data_ingestion.md` §2.2). |
 | Máy local | i5-13500H, 16 GB RAM, không GPU NVIDIA, ổ D còn ~26 GB trống, Java 17. Đủ cho crawl và BM25; encode embedding và rerank phải chạy GPU ngoài (Kaggle 2×T4 30 giờ/tuần/tài khoản, Colab hoặc máy thuê). |
 | GitHub | Tài khoản `HuyHoangTran05` chỉ có quyền read trên `HungPhamNoob/thh`, nên Hưng cần thêm làm collaborator. |
-| Leaderboard | Top 1: 0,4871. Baseline BM25 của BTC: 0,3764, nhưng doc F2 0,5587 (cao nhất bảng). |
+| Leaderboard | Top 1: 0,4871. Baseline BM25 của BTC: 0,3764, nhưng doc F2 0,5587 (cao nhất bảng). Các điểm này chấm theo luật chunk cũ; từ 25/10 kết quả chấm chỉ còn điểm tổng, không còn chi tiết theo query. |
 
 ## 2. Phân vai
 
@@ -78,7 +78,7 @@ Trạng thái: `todo` / `doing` / `done`. Ưu tiên: P0 > P1 > P2.
 
 | Mã | Ưu tiên | Việc | Tiêu chí xong | Trạng thái |
 |---|---|---|---|---|
-| E1 | P0 | Sửa `evaluation/official.py` cho khớp luật: chunk nộp đúng nếu overlap ≥ 0,4 với **bất kỳ** chunk vàng nào (không ghép 1–1); recall = số chunk vàng có ít nhất một match; F2 tính theo từng query rồi trung bình; `final_score = (doc_f2 + chunk_f2)/2`. Sửa `test_one_to_one_chunk_matching` theo luật mới; thêm test có số liệu tính tay. | Test mới pass; README/docs ghi đúng tên metric | todo |
+| E1 | P0 | Sửa `evaluation/official.py` cho khớp luật: cặp (c, g) khớp khi **cả** LCS/\|g\| ≥ 0,4 **và** LCS/\|c\| ≥ 0,4; chunk nộp đúng nếu khớp **bất kỳ** chunk vàng nào (không ghép 1–1); recall = số chunk vàng có ít nhất một chunk nộp khớp; F2 tính theo từng query rồi trung bình; `final_score = (doc_f2 + chunk_f2)/2`. Sửa `test_one_to_one_chunk_matching` theo luật mới; thêm test có số liệu tính tay, gồm ca chunk nộp quá dài (chứa trọn chunk vàng nhưng dài hơn 2,5 lần) phải bị tính sai. | Test mới pass; README/docs ghi đúng tên metric | todo |
 | E2 | P0 | `vibiomir package`: validate (đủ 1.200 id, id là int, doc id thuộc corpus, `chunk_text` là substring, không rỗng), tuỳ chọn kiểu doc id `int\|str`, nén ZIP **một file ở gốc**. | ZIP mở ra đúng 1 file; validator bắt được lỗi cố ý | todo |
 | E3 | P0 | Dev set: (a) silver từ trang hỏi đáp chứa gần nguyên văn query (BM25 điểm vượt trội, người kiểm tra lại); (b) 50–100 query gán tay doc + chunk bằng script gợi ý ứng viên; (c) tuỳ chọn: query tổng hợp kiểu GPL bằng LLM mở. Định dạng giống `examples/gold.json`. | ≥ 100 query có nhãn, ghi rõ nguồn từng nhãn | todo |
 | E4 | P0 | Nhật ký: `docs/submission_log.md` (mỗi lần nộp một dòng) + thư mục `runs/<ngày>_<tên>/` lưu config đã resolve, commit, metric. | Mọi bài nộp đều tra ngược được ra config + commit | todo |
@@ -94,7 +94,7 @@ Trạng thái: `todo` / `doing` / `done`. Ưu tiên: P0 > P1 > P2.
 | R3 | P0 | Xuyên ngữ: dịch query VI→EN/ZH (NLLB-200 hoặc LLM mở ≤ 15B), BM25 trên index EN (PubMed) và ZH (bigram CJK); tuỳ chọn MedCPT cho nhánh EN. | Recall doc EN/ZH tăng trên dev | todo |
 | R4 | P1 | Dense đa ngữ doc-level: Qwen3-Embedding-0.6B hoặc BGE-M3 trên title + ~512 token đầu, encode trên GPU, FAISS (HNSW hoặc IVF-PQ); dense cấp chunk chỉ tính cho doc ứng viên khi query. | Index 1,22M doc; tăng recall@100 trên dev | todo |
 | R5 | P1 | Rerank chunk của top doc: bge-reranker-v2-m3 / Qwen3-Reranker-0.6B/4B / gte-multilingual-reranker-base. | Tăng chunk F2 trên dev; 1.200 query < 1 giờ trên T4 | todo |
-| R6 | P0 | Selection: số doc mỗi query (ngưỡng tương đối + gap, có thể theo ngôn ngữ), số chunk mỗi doc, độ dài chunk (1–3 đoạn hoặc 150–400 token; tiếng Trung cắt theo đoạn). Sweep trên dev, xác nhận bằng leaderboard. | Bảng sweep và lựa chọn có lý do | todo |
+| R6 | P0 | Selection: số doc mỗi query (ngưỡng tương đối + gap, có thể theo ngôn ngữ), số chunk mỗi doc, và **độ dài chunk**. Theo luật mới, chunk chỉ được tính khi dài khoảng 0,4–2,5 lần chunk vàng, nên phải ước lượng cỡ chunk vàng: 2–3 bài nộp giữ nguyên tập doc, chỉ đổi cỡ chunk (1 câu / 1 đoạn / 2–3 đoạn), so chunk F2; tiếng Trung cắt theo đoạn. Sweep phần còn lại trên dev. | Bảng sweep, cỡ chunk được chọn có bằng chứng từ leaderboard | todo |
 | R7 | P1 | Fusion nhiều retriever và ngôn ngữ (RRF có trọng số), hiệu chỉnh trọng số trên dev. | Tốt hơn retriever đơn tốt nhất | todo |
 | R8 | P2 | Chỉ làm nếu còn thời gian: fine-tune embedding/reranker bằng dữ liệu tổng hợp (GPL/InPars, `training_recipes.md`). | – | todo |
 
@@ -104,6 +104,7 @@ Model ứng viên phải được kiểm tra trên model card: phát hành trư�
 
 - Public còn 7 ngày × 10 bài. Mỗi thay đổi lớn nộp ít nhất 1 bài; sweep nhỏ làm trên dev set. Không tune cutoff đến từng chữ số theo leaderboard public.
 - Bài #1 (26/10) chỉ cần đúng format và corpus đủ. Dùng nó để xác nhận kiểu `doc_id` (int hay str) và mức điểm của BM25 trên corpus của mình.
+- BTC đã tắt kết quả chấm chi tiết, mỗi bài chỉ trả về điểm tổng. Vì vậy mỗi bài nộp nên trả lời đúng một câu hỏi, tức chỉ đổi một yếu tố so với bài trước (ví dụ chỉ đổi cỡ chunk ở R6), để đọc được tác động từ điểm tổng.
 - Private chỉ có 5 bài cho cả phase: ngày 01/11 nộp ngay config tốt nhất từ public; 1–2 biến thể có lý do rõ ràng; giữ 2 bài dự phòng cho sửa lỗi. Vì cùng 1.200 query, phân phối private giống public, nên ưu tiên config ổn định.
 
 ## 6. Rủi ro và cách xử lý
@@ -111,7 +112,8 @@ Model ứng viên phải được kiểm tra trên model card: phát hành trư�
 | Rủi ro | Ảnh hưởng | Cách xử lý |
 |---|---|---|
 | Crawl chậm hoặc bị chặn | Thiếu doc → mất recall | Bootstrap từ HF trước, crawl phần thiếu theo thứ tự domain lớn; nguồn dự phòng (D7); chấp nhận thiếu ở domain nhỏ |
-| Text crawl khác bản BTC | Chunk lệch → overlap < 0,4 | Extractor giữ nguyên đoạn; chunk đủ dài; QA theo domain |
+| Text crawl khác bản BTC | Chunk lệch → overlap < 0,4 | Extractor giữ nguyên đoạn; cắt chunk theo ranh giới đoạn; QA theo domain |
+| Cỡ chunk lệch chunk vàng (luật mới, LCS/\|c\| ≥ 0,4) | Trúng đúng chỗ nhưng vẫn bị tính sai | Ước lượng cỡ chunk vàng bằng các bài nộp chỉ đổi cỡ chunk (R6); không gộp nhiều đoạn vào một chunk khi chưa có bằng chứng |
 | Token LCS cho tiếng Trung chưa rõ | Chunk ZH có thể luôn trượt | Cắt chunk ZH theo đoạn; hỏi BTC; thử 1 bài nộp chỉ thay đổi nhánh ZH |
 | Bản crawl cộng đồng có thể không được chấp nhận | Phải crawl lại | Hỏi BTC sớm; trích dẫn đầy đủ; ưu tiên tự crawl domain lớn |
 | RAM 16 GB, không GPU | Không chạy được toàn corpus in-memory, không encode được | R0 dùng index offline + doc store; GPU ngoài cho R4/R5 |
