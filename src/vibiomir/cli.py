@@ -9,6 +9,7 @@ import yaml
 from vibiomir.chunking import build_chunker
 from vibiomir.config import apply_overrides, load_config
 from vibiomir.evaluation import evaluate_submission
+from vibiomir.ingest.cli import add_ingest_parser
 from vibiomir.io import (
     load_documents,
     load_queries,
@@ -104,6 +105,8 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser = subparsers.add_parser("show-config", help="Render inherited config plus overrides")
     add_config_flags(show_parser)
     show_parser.set_defaults(handler=command_show_config)
+
+    add_ingest_parser(subparsers)
     return parser
 
 
