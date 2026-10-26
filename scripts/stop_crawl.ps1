@@ -1,11 +1,12 @@
 # Stop ingest jobs started by start_crawl.ps1, including their extraction worker processes.
 # Rows already written to parquet parts and the SQLite state are kept; start_crawl.ps1 resumes.
-param([string[]]$Jobs = @("crawl", "vov", "pubmed"))
+param([string[]]$Jobs = @("crawl", "vov", "pubmed", "wayback"))
 
 $Patterns = @{
     crawl  = "*vibiomir ingest crawl --skip-domain*"
     vov    = "*vibiomir ingest crawl --domain vov.vn*"
     pubmed = "*vibiomir ingest pubmed*"
+    wayback = "*vibiomir ingest wayback*"
 }
 
 foreach ($job in $Jobs) {

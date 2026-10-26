@@ -2,8 +2,9 @@
 # plus keep_awake.ps1. Every job resumes from data/interim/crawl_state.sqlite and its parts, so
 # rerunning this script after a reboot or crash continues where the jobs stopped. A job that is
 # already running is not started twice. Logs: data/interim/logs/<job>.log
+# The wayback job reads pages the crawl could not fetch from the Wayback Machine (D7).
 param(
-    [string[]]$Jobs = @("crawl", "vov", "pubmed"),
+    [string[]]$Jobs = @("crawl", "vov", "pubmed", "wayback"),
     [string]$Python = (Get-Command python).Source
 )
 
@@ -17,6 +18,9 @@ $Commands = @{
     vov    = "ingest crawl --domain vov.vn --links `"`" --workers 1 " +
              "--log-file data/interim/logs/crawl_vov.log"
     pubmed = "ingest pubmed --log-file data/interim/logs/pubmed.log"
+    wayback = "ingest wayback --skip-domain pubmed.ncbi.nlm.nih.gov --skip-domain vov.vn " +
+              "--skip-domain dantri.com.vn --skip-domain www.qdnd.vn --concurrency 8 " +
+              "--log-file data/interim/logs/wayback.log"
 }
 
 function Test-Running([string]$Arguments) {

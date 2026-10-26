@@ -19,7 +19,8 @@ Phần khó nhất của cuộc thi: biến 1.220.598 URL thành corpus text s�
 
 Kèm theo:
 
-- `data/processed/coverage.csv`: theo domain, gồm tổng số link, số doc OK, ngắn (< 200 ký tự), lỗi, và số doc theo từng nguồn.
+- `data/processed/coverage.csv`: theo domain, gồm tổng số link, số doc OK, ngắn (< 200 ký tự), thiếu, và số doc theo từng nguồn.
+- `data/processed/corpus_info.json`: phiên bản, thời điểm merge, số dòng, số part đầu vào, đếm theo ngôn ngữ. File này nằm cạnh thư mục `corpus/` chứ không nằm trong, để `pq.read_table("data/processed/corpus")` chỉ thấy parquet.
 - Lệnh xuất JSONL cho subset, đúng định dạng `vibiomir.io.load_documents` đọc được (`id`, `url`, `title`, `language`, `text`, các trường còn lại vào `metadata`).
 
 Yêu cầu về text:
@@ -80,7 +81,7 @@ links parquet ─► manifest (id, url, domain, lang) ─► crawl_state.sqlite
 - **Ước lượng**: 50 domain × 2 request/giây ≈ 100 trang/giây trên lý thuyết. Nút thắt là domain lớn: ví dụ 120ask.com có 98.160 link, ở 4 request/giây mất khoảng 7 giờ. Vì vậy phải lấp từ bootstrap trước và chỉ crawl phần còn thiếu.
 - **Charset**: lấy từ header/meta, dự phòng bằng `charset-normalizer`. Trang Trung khai báo gbk/gb2312 thì decode bằng `gb18030`.
 - **Raw HTML**: ổ đĩa không đủ để giữ toàn bộ (ước tính 15–20 GB dạng gz). Chỉ giữ 200 trang mẫu mỗi domain và mọi trang extract lỗi hoặc ngắn, để debug extractor.
-- **Trang bị chặn** (403/429 kéo dài, 521, trang thử thách JS): đánh dấu `blocked`, không tìm cách vượt. Thứ tự dự phòng (D7): bản crawl công khai → Wayback Machine (`https://web.archive.org/web/2026id_/<url>`, ghi `source=wayback`) → để trống và ghi vào coverage.
+- **Trang bị chặn** (403/429 kéo dài, 521, trang thử thách JS): đánh dấu `blocked`, không tìm cách vượt. Dự phòng (D7): Wayback Machine (`https://web.archive.org/web/2026id_/<url>`, ghi `source=wayback`, xem §2.7) → để trống và ghi vào coverage. Bản crawl công khai chỉ dùng nếu BTC đồng ý (§2.6).
 - **Trang render bằng JS**: chỉ khi thử 20 trang của domain đó thấy httpx không lấy được nội dung mới dùng Playwright headless, với rate limit thấp.
 
 ### 2.4 Extractor (D5)
@@ -149,19 +150,46 @@ vibiomir ingest crawl --skip-domain pubmed.ncbi.nlm.nih.gov --skip-domain vov.vn
 vibiomir ingest crawl --domain vov.vn --links "" --workers 1     # process riêng, Crawl-delay 20
 ```
 
-Trên Windows, `powershell -ExecutionPolicy Bypass -File scripts/start_crawl.ps1` chạy cả ba job thành process ẩn, tách khỏi terminal đã khởi động chúng (tạo qua `Win32_Process.Create`), nên đóng terminal hay Claude Code thì job vẫn chạy. Job nào đang chạy thì script không mở thêm bản thứ hai. Log nằm ở `data/interim/logs/{crawl_full,crawl_vov,pubmed}.log`. Script cũng mở `scripts/keep_awake.ps1`: script này gọi `SetThreadExecutionState` để Windows không tự sleep khi máy rảnh, và tự thoát khi không còn job `vibiomir ingest` nào chạy. Gập máy hoặc bấm nút nguồn vẫn làm máy sleep; khi máy dậy, job tự tiếp tục với các request đang dở được retry, nhưng sau khi khởi động lại máy thì phải chạy lại script. Dừng job: `scripts/stop_crawl.ps1 [-Jobs crawl,vov,pubmed]` (dùng `taskkill /T`). Không dùng `Stop-Process` lên riêng process chính: các worker extract (multiprocessing) sẽ sống tiếp, giữ file stdout và làm lần chạy sau thoát ngay.
+Trên Windows, `powershell -ExecutionPolicy Bypass -File scripts/start_crawl.ps1` chạy các job (từ 26/10 thêm job thứ tư là `wayback`, §2.7) thành process ẩn, tách khỏi terminal đã khởi động chúng (tạo qua `Win32_Process.Create`), nên đóng terminal hay Claude Code thì job vẫn chạy. Job nào đang chạy thì script không mở thêm bản thứ hai. Log nằm ở `data/interim/logs/{crawl_full,crawl_vov,pubmed,wayback}.log`. Script cũng mở `scripts/keep_awake.ps1`: script này gọi `SetThreadExecutionState` để Windows không tự sleep khi máy rảnh, và tự thoát khi không còn job `vibiomir ingest` nào chạy. Gập máy hoặc bấm nút nguồn vẫn làm máy sleep; khi máy dậy, job tự tiếp tục với các request đang dở được retry, nhưng sau khi khởi động lại máy thì phải chạy lại script. Dừng job: `scripts/stop_crawl.ps1 [-Jobs crawl,vov,pubmed,wayback]` (dùng `taskkill /T`). Không dùng `Stop-Process` lên riêng process chính: các worker extract (multiprocessing) sẽ sống tiếp, giữ file stdout và làm lần chạy sau thoát ngay.
 
+- **Kết quả**: job crawl chính xong lúc 22:35 ngày 25/10 (587.510 trang trong ~7,5 giờ, trung bình 21,9 trang/giây). PubMed xong lúc 17:02 ngày 25/10. vov.vn còn ~36 giờ tính từ 09:00 ngày 26/10.
 - Ước lượng lúc bắt đầu (14:56 25/10): còn 620.850 trang crawl được (ngoài PubMed, vov.vn và domain bị chặn). Nút thắt là 39.net (44.038 trang ở ~1,5 request/giây, ~8 giờ, lâu hơn nếu gặp captcha) và suckhoecongdongonline.vn (147.115 trang ở 6 request/giây, ~7 giờ): **~8–12 giờ**. vov.vn chạy riêng ~54 giờ.
 - **PubMed**: 1.200 lô × 200 PMID, POST `efetch.fcgi`, ≤ 3 request/giây khi không có `NCBI_API_KEY` (9 khi có). Mỗi lô ~3 MB XML; cả 240.000 bài mất ~15–20 phút. `text` = `ArticleTitle` + các `AbstractText` (giữ nhãn `BACKGROUND: …`), bỏ `OtherAbstract` và copyright. Trạng thái: `ok` khi abstract ≥ 200 ký tự, `short` khi chỉ có title, `gone` khi PMID không có trong kết quả trả về. Chạy lại thì bỏ qua lô đã có file part.
 - **`lighth0406/R2AI_STAGE3_ds`**: tài khoản cá nhân trên HF (tên hiển thị "Hải Đăng Lê Võ", thuộc tổ chức `AncientWings`), tạo ngày 13/10/2026, **không có dataset card và license**. Đã tải để đối chiếu (revision `9fe2787f8495b52bcf677ac24d8e25f18a7553d5`, `corpus.parquet` SHA256 `2b5bd99b…468b5`; `hf_hub_download` qua `hf_xet` bị treo nên phải dùng `curl`) rồi xoá ngày 25/10. Lệnh `vibiomir ingest bootstrap --dataset lighth0406 --input …` (chỉ dùng để đối chiếu) chỉ giữ những dòng có cặp `id`/`url` khớp file chính thức, giữ nguyên `text`, gắn `source=hf_lighth0406`, `extractor=lighth0406:<extractor gốc>`. Cần BTC đồng ý trước khi đưa vào corpus nộp bài (`competition.md` §8 câu 5).
 
+### 2.7 Nguồn dự phòng Wayback Machine (D7, chạy từ 26/10)
+
+```bash
+vibiomir ingest wayback --skip-domain pubmed.ncbi.nlm.nih.gov --skip-domain vov.vn \
+  --skip-domain dantri.com.vn --skip-domain www.qdnd.vn --concurrency 8
+vibiomir ingest status --state data/interim/wayback_state.sqlite
+```
+
+- Lệnh chép các trang `pending`/`failed`/`blocked`/`gone` từ crawl state sang một state riêng, `data/interim/wayback_state.sqlite`, rồi tải `https://web.archive.org/web/2026id_/<url>`. Với timestamp `2026`, Wayback redirect sang bản lưu gần nhất; `id_` trả nguyên byte đã lưu, không chèn toolbar, nên extractor theo site vẫn dùng được. Crawl state giữ nguyên. Chạy lại lệnh thì tiếp tục từ chỗ dừng; trang `pending` mà crawl đã lấy được trong lúc đó sẽ bị bỏ khỏi state Wayback.
+- Part ghi ở `data/interim/parts/wayback/` với `source=wayback`. `url` là URL chính thức; `final_url` là bản lưu đã đọc (ví dụ `https://web.archive.org/web/20250116151331id_/https://youmed.vn/...`), trong đó có ngày chụp.
+- Trong state Wayback, `gone` nghĩa là Wayback không có bản lưu (hoặc chỉ lưu trang 404), còn `blocked` nghĩa là bản lưu chính là trang chặn bot. Trang `blocked` không làm dừng domain, vì nó không cho biết gì về các trang khác.
+- Mọi domain dùng chung một giới hạn tốc độ cho `web.archive.org`: bắt đầu 1 request/giây, trần 3, tối đa 8 request đồng thời, giảm một nửa khi gặp 429/503. `Crawl-delay` của site gốc không áp vào Wayback, vì request không tới site gốc; còn `Disallow` trong robots.txt của site gốc (nếu đọc được) vẫn được tôn trọng.
+- Đo trên 15 URL ngẫu nhiên mỗi domain bằng CDX API (26/10): nhathuoclongchau 15/15, youmed 15/15, laodong 7/15, baodanang 3/15, 120ask 1/15 (chạy thử 3/8), baohaiphong 1/15, baonghean 1/15, zysjonline 0/14. Chạy thử 32 trang: 22 ok, 10 không có bản lưu. Ước tính lấy thêm được khoảng 100–130 nghìn trang. Job bắt đầu lúc 09:21 ngày 26/10 với 277.134 trang của 28 domain, chạy ở ~2–3 trang/giây, mất **~25–40 giờ**.
+- dantri.com.vn và www.qdnd.vn không qua Wayback: hai site này vẫn trả lời, chỉ giới hạn tốc độ, nên được crawl lại trực tiếp ở 0,5–1 request/giây.
+
 ## 3. Merge và kiểm tra (D6)
+
+```bash
+vibiomir ingest merge --version v0     # data/processed/corpus/part-000NN.parquet + coverage.csv
+vibiomir ingest export-jsonl --output runs/sample.jsonl --language vi --limit 1000
+```
 
 Thứ tự ưu tiên nguồn cho mỗi id: tự crawl (`ok`) > PubMed E-utilities > bản công khai tốt nhất cho domain đó > Wayback > rỗng.
 
+- Cài đặt (`src/vibiomir/ingest/merge.py`): mặc định đọc `data/interim/parts/{crawl,pubmed,wayback}/`. Với mỗi id, dòng thắng được chọn lần lượt theo: text đủ dài (≥ 200 ký tự ngoài title) > nguồn (`crawl` > `pubmed_eutils` > `wayback` > nguồn khác) > `fetched_at` mới nhất. id không có dòng nào vẫn được giữ với `text=""` và `source=missing`. `url`, `domain`, `language` luôn lấy từ manifest chính thức; `url_mismatches` đếm các dòng part có URL khác URL chính thức.
+- Đầu ra gồm 13 file, mỗi file 100.000 id liên tiếp, sắp theo id. Merge chạy hai lượt để không nạp toàn bộ text vào RAM: lượt 1 chỉ đọc khoá xếp hạng, lượt 2 chép dòng thắng vào từng bucket. Toàn bộ mất khoảng 1,5 phút. Các part gốc không bị sửa, nên merge lại bao nhiêu lần cũng được.
+- `export-jsonl` xuất subset (lọc theo `--ids`, `--language`, `--limit`) theo đúng định dạng `vibiomir.io.load_documents` đọc được, để chạy `vibiomir run` trên một phần corpus.
+- **v0 (26/10 09:24)**: 1.550 part, 1.220.598 dòng, id unique, 0 URL lệch, bỏ 578 dòng trùng (do restart giữa chừng). en 239.251 ok / 645 ngắn / 104 thiếu; vi 556.982 / 2.004 / 181.612; zh 117.868 / 16.509 / 105.623. Tổng 914.101 ok + 19.158 ngắn = 76,5% id có text. 1,2 GB.
+- ask.39.net có 14.036 / 32.772 trang ngắn. Đã xem mẫu: đây là hỏi đáp thật, chỉ ngắn vì tiếng Trung viết cô đọng (150 ký tự đã là một câu trả lời đầy đủ), không phải trang chặn. Khoảng 1.250 trang chỉ có câu hỏi; cần kiểm tra trong D5 xem câu trả lời có bị extractor bỏ sót không.
+
 - Giữ đủ mọi id, kể cả khi trùng text: nhãn chấm theo id. `text_sha256` chỉ dùng để encode embedding một lần cho các bản trùng.
 - Kiểm tra cuối: đúng 1.220.598 dòng, id unique, ngôn ngữ khớp bảng domain, tỉ lệ doc rỗng theo domain, phân phối độ dài.
-- Phiên bản: v0 (26/10) = bootstrap + PubMed; v1 (đóng băng 29/10 18:00) = v0 + tự crawl + dự phòng. Sau khi đóng băng, mọi index và embedding đều build trên v1.
+- Phiên bản: v0 (26/10) = tự crawl + PubMed (không có bootstrap, xem §2.6); v1 (đóng băng 29/10 18:00) = v0 + phần Wayback + vov.vn và các trang crawl lại. Sau khi đóng băng, mọi index và embedding đều build trên v1.
 
 ## 4. Lưu trữ và truy xuất (D8)
 
@@ -193,7 +221,8 @@ src/vibiomir/ingest/
 ├── extract/         base, trafilatura, sites/<domain>.py, registry
 ├── pubmed.py        client E-utilities và parser XML
 ├── bootstrap.py     chuyển dataset HF công khai về schema chung
-├── merge.py         hợp nhất nguồn, QA, coverage
+├── merge.py         hợp nhất nguồn, coverage, export JSONL
+├── wayback.py       nguồn dự phòng Wayback Machine (D7)
 └── docstore.py      lấy text theo id
 ```
 
