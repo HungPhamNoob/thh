@@ -94,6 +94,12 @@ class CrawlConfig:
     respect_robots: bool = True
     log_every: float = 30.0
     backoff_base: float = 2.0
+    # Fetch through a mirror such as the Wayback Machine: ``{url}`` is the official URL, which
+    # rows keep in ``url``; ``final_url`` records the mirror copy actually read.
+    url_template: str | None = None
+    source: str = "crawl"
+    # One rate limit for every domain, because with a mirror all requests go to one host.
+    shared_group: str | None = None
 
 
 @dataclass(slots=True)
@@ -333,10 +339,15 @@ class Crawler:
                 self._own_executor = self.executor = None
             self._log_progress(final=True)
 
+    def _group_name(self, domain: str) -> str:
+        return self.config.shared_group or rate_group(domain)
+
     def _group(self, domain: str) -> RateGroup:
-        name = rate_group(domain)
+        name = self._group_name(domain)
         if name not in self.groups:
-            policy = domain_policy(name, self.config.default_policy)
+            policy = self.config.default_policy
+            if not self.config.shared_group:
+                policy = domain_policy(name, policy)
             self.groups[name] = RateGroup(
                 policy, DomainLimiter(policy), asyncio.Semaphore(policy.concurrency)
             )
@@ -346,11 +357,12 @@ class Crawler:
         cfg = self.config
         group = self._group(domain)
         policy = group.policy
-        stats = self.stats[domain] = DomainStats(remaining=n, group=rate_group(domain))
+        stats = self.stats[domain] = DomainStats(remaining=n, group=self._group_name(domain))
         if cfg.samples_dir is not None:
             stats.samples = len(list((cfg.samples_dir / domain).glob("*.html.gz")))
         robots = await self._robots(client, domain) if cfg.respect_robots else None
-        if robots is not None and robots.crawl_delay(ROBOTS_TOKEN):
+        # The site's own Crawl-delay protects the site; a mirror is limited by shared_group.
+        if robots is not None and robots.crawl_delay(ROBOTS_TOKEN) and not cfg.url_template:
             group.limiter.cap(1.0 / float(robots.crawl_delay(ROBOTS_TOKEN)))
 
         queue: asyncio.Queue = asyncio.Queue(maxsize=policy.concurrency * 4)
@@ -382,11 +394,15 @@ class Crawler:
         self, client, semaphore, group, sink, robots, domain, stats, doc_id, url
     ) -> None:
         if robots is not None and not robots.can_fetch(ROBOTS_TOKEN, url):
-            self._finish(sink, stats, PageUpdate(doc_id, "disallowed", error="robots.txt"))
+            self._finish(sink, stats, PageUpdate(doc_id, "disallowed", error="robots.txt",
+                                                 source=self.config.source))
             return
-        result = await self._fetch_with_retries(client, semaphore, group, url)
+        cfg = self.config
+        fetch_url = cfg.url_template.format(url=url) if cfg.url_template else url
+        result = await self._fetch_with_retries(client, semaphore, group, fetch_url)
         fetched_at = _utc_now()
-        base = dict(http_status=result.status, final_url=result.final_url, fetched_at=fetched_at)
+        base = dict(http_status=result.status, final_url=result.final_url, fetched_at=fetched_at,
+                    source=cfg.source)
 
         if result.error is not None:
             self._finish(sink, stats, PageUpdate(doc_id, "failed", error=result.error, **base))
@@ -432,7 +448,7 @@ class Crawler:
             "language": domain_language(domain),
             "title": extracted.title,
             "text": extracted.text,
-            "source": "crawl",
+            "source": cfg.source,
             "extractor": extracted.extractor,
             "http_status": result.status,
             "fetched_at": fetched_at,
@@ -473,8 +489,10 @@ class Crawler:
         now = time.monotonic()
         if now < stats.paused_until:
             return  # answers to requests already in flight when the pause started
-        stats.consecutive_bad += 1
         cfg = self.config
+        if cfg.url_template and update.status == "blocked":
+            return  # an archived bot-check page says nothing about the mirror or other pages
+        stats.consecutive_bad += 1
         if stats.consecutive_bad < cfg.block_threshold:
             return
         reason = f"{stats.consecutive_bad} consecutive {update.status} ({update.error})"

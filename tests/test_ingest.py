@@ -350,5 +350,135 @@ class BootstrapTest(unittest.TestCase):
                          [(1, "hf_lighth0406", "vi")])
 
 
+@unittest.skipIf(httpx is None, "ingest extra not installed")
+class WaybackTest(unittest.TestCase):
+    def test_unfinished_pages_are_fetched_through_the_archive(self):
+        from vibiomir.ingest.domains import DomainPolicy
+        from vibiomir.ingest.fetch import CrawlConfig, Crawler
+        from vibiomir.ingest.wayback import seed_from_crawl, url_template
+
+        requested = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/robots.txt":
+                return httpx.Response(200, text="User-agent: *\nCrawl-delay: 20\n")
+            requested.append(str(request.url))
+            if request.url.host != "web.archive.org":
+                return httpx.Response(500)
+            if request.url.path.endswith("/p2"):
+                return httpx.Response(404, text="Wayback Machine has not archived that URL.")
+            if request.url.path.endswith("/p3"):
+                return httpx.Response(200, text="<title>Just a moment...</title>")
+            if "/web/2026id_/" in request.url.path:
+                target = request.url.path.replace("/web/2026id_/", "/web/20250101000000id_/")
+                return httpx.Response(302, headers={"location": target})
+            body = "".join(f"<p>Đoạn {i} về bệnh tiểu đường.</p>" for i in range(20))
+            return httpx.Response(200, html=ARTICLE.format(n="w", body=body))
+
+        with tempfile.TemporaryDirectory() as tmp_name:
+            tmp = Path(tmp_name)
+            with CrawlState(tmp / "crawl.sqlite") as crawl:
+                crawl.seed([(i, f"https://blocked.vn/p{i}") for i in range(1, 5)]
+                           + [(9, "https://vov.vn/x")])
+                crawl.update([PageUpdate(1, "blocked"), PageUpdate(4, "ok")])
+                with CrawlState(tmp / "wb.sqlite") as fallback:
+                    added = seed_from_crawl(crawl, fallback, skip_domains=["vov.vn"])
+            self.assertEqual(added, 3)  # p1 blocked, p2/p3 pending; p4 done, vov skipped
+            config = CrawlConfig(
+                state_path=tmp / "wb.sqlite", out_dir=tmp / "parts", extract_workers=0,
+                retries=0, log_every=3600, url_template=url_template("2026"),
+                source="wayback", shared_group="web.archive.org",
+                default_policy=DomainPolicy(rps=1000, max_rps=1000, concurrency=2),
+            )
+            crawler = Crawler(config, transport=httpx.MockTransport(handler))
+            counts = crawler.run()
+            rows = pq.read_table(tmp / "parts").to_pylist()
+
+        self.assertEqual(dict(counts), {"ok": 1, "gone": 1, "blocked": 1})
+        self.assertEqual(list(crawler.groups), ["web.archive.org"])
+        # The site's Crawl-delay does not slow the archive down.
+        self.assertEqual(crawler.groups["web.archive.org"].limiter.rps, 1000)
+        self.assertTrue(all(url.startswith("https://web.archive.org/web/") for url in requested))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["url"], "https://blocked.vn/p1")
+        self.assertEqual(rows[0]["source"], "wayback")
+        self.assertEqual(rows[0]["final_url"],
+                         "https://web.archive.org/web/20250101000000id_/https://blocked.vn/p1")
+
+
+@unittest.skipIf(httpx is None, "ingest extra not installed")
+class MergeTest(unittest.TestCase):
+    def test_one_row_per_id_by_quality_source_and_freshness(self):
+        import csv
+
+        import pyarrow as pa
+
+        from vibiomir.ingest.fetch import write_part
+        from vibiomir.ingest.merge import export_jsonl, iter_corpus, merge_corpus
+
+        long_text = "T\n\n" + "chữ " * 80
+
+        def row(doc_id, source, text, fetched_at, url=None):
+            return {"id": doc_id, "url": url or f"https://a.vn/{doc_id}", "title": "T",
+                    "text": text, "source": source, "fetched_at": fetched_at,
+                    "domain": "wrong", "language": "xx"}
+
+        manifest = {
+            "id": [7000000, 10, 20, 30, 40, 50],
+            "url": ["https://b.cn/7", *(f"https://a.vn/{i}" for i in (10, 20, 30, 40, 50))],
+            "domain": ["b.cn", *["a.vn"] * 5],
+            "language": ["zh", *["vi"] * 5],
+        }
+        with tempfile.TemporaryDirectory() as tmp_name:
+            tmp = Path(tmp_name)
+            pq.write_table(pa.table(manifest), tmp / "manifest.parquet")
+            (tmp / "crawl").mkdir()
+            (tmp / "wayback").mkdir()
+            write_part([row(10, "crawl", long_text + "cũ", "2026-10-25T01:00:00+00:00"),
+                        row(20, "crawl", "T\n\nngắn", "2026-10-25T01:00:00+00:00"),
+                        row(30, "crawl", long_text, "2026-10-25T01:00:00+00:00")],
+                       tmp / "crawl" / "part-a.parquet")
+            write_part([row(10, "crawl", long_text + "mới", "2026-10-26T01:00:00+00:00"),
+                        row(7000000, "crawl", long_text, "2026-10-26T01:00:00+00:00",
+                            url="https://b.cn/other")],
+                       tmp / "crawl" / "part-b.parquet")
+            write_part([row(20, "wayback", long_text, "2026-10-26T05:00:00+00:00"),
+                        row(30, "wayback", long_text + "x", "2026-10-26T05:00:00+00:00"),
+                        row(40, "wayback", "T\n\nngắn", "2026-10-26T05:00:00+00:00")],
+                       tmp / "wayback" / "part-c.parquet")
+            report = merge_corpus(tmp / "manifest.parquet", [tmp / "crawl", tmp / "wayback"],
+                                  tmp / "corpus", coverage_path=tmp / "coverage.csv",
+                                  bucket_rows=2)
+            rows = {r["id"]: r for r in iter_corpus(tmp / "corpus", include_missing=True)}
+            with (tmp / "coverage.csv").open(encoding="utf-8") as handle:
+                coverage = {r["domain"]: r for r in csv.DictReader(handle)}
+            written = export_jsonl(iter_corpus(tmp / "corpus", languages=["vi"]),
+                                   tmp / "vi.jsonl")
+            documents = __import__("vibiomir.io", fromlist=["load_documents"]).load_documents(
+                tmp / "vi.jsonl"
+            )
+            info = (tmp / "corpus_info.json").read_text(encoding="utf-8")
+
+        self.assertEqual(report.rows, 6)
+        self.assertEqual(report.unique_ids, 6)
+        self.assertEqual(report.duplicate_rows, 3)
+        self.assertEqual(report.url_mismatches, 1)
+        self.assertEqual(sorted(rows), [10, 20, 30, 40, 50, 7000000])
+        self.assertTrue(rows[10]["text"].endswith("mới"))  # newest crawl wins
+        self.assertEqual(rows[20]["source"], "wayback")  # ok beats a short crawl
+        self.assertEqual(rows[30]["source"], "crawl")  # crawl beats wayback at equal quality
+        self.assertEqual(rows[40]["source"], "wayback")
+        self.assertEqual((rows[50]["source"], rows[50]["text"]), ("missing", ""))
+        self.assertEqual((rows[10]["domain"], rows[10]["language"]), ("a.vn", "vi"))
+        self.assertEqual(rows[7000000]["url"], "https://b.cn/7")  # official url kept
+        self.assertEqual(coverage["a.vn"]["ok"], "3")
+        self.assertEqual(coverage["a.vn"]["short"], "1")
+        self.assertEqual(coverage["a.vn"]["missing"], "1")
+        self.assertEqual(coverage["a.vn"]["wayback"], "2")
+        self.assertEqual(written, 4)
+        self.assertEqual(documents[0].metadata["source"], "crawl")
+        self.assertIn('"rows": 6', info)
+
+
 if __name__ == "__main__":
     unittest.main()

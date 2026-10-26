@@ -120,6 +120,81 @@ def command_bootstrap(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_wayback(args: argparse.Namespace) -> int:
+    from vibiomir.ingest.domains import DomainPolicy
+    from vibiomir.ingest.fetch import DEFAULT_USER_AGENT, CrawlConfig, Crawler
+    from vibiomir.ingest.state import CrawlState
+    from vibiomir.ingest.wayback import (
+        ARCHIVE_HOST,
+        SOURCE,
+        default_state_path,
+        seed_from_crawl,
+        url_template,
+    )
+
+    _setup_logging(args.log_file)
+    fallback_path = Path(args.wayback_state) if args.wayback_state else default_state_path(
+        args.state
+    )
+    skip = tuple(args.skip_domain or ("pubmed.ncbi.nlm.nih.gov", "vov.vn"))
+    with CrawlState(args.state) as crawl_state, CrawlState(fallback_path) as fallback:
+        added = seed_from_crawl(crawl_state, fallback, args.domain, skip)
+    logging.getLogger("vibiomir.ingest").info("seeded %d new pages into %s", added, fallback_path)
+    user_agent = DEFAULT_USER_AGENT
+    contact = os.environ.get("VIBIOMIR_CRAWLER_CONTACT")
+    if contact:
+        user_agent = user_agent[:-1] + f"; contact: {contact})"
+    config = CrawlConfig(
+        state_path=fallback_path,
+        out_dir=Path(args.out),
+        samples_dir=Path(args.samples) if args.samples else None,
+        user_agent=user_agent,
+        domains=args.domain or None,
+        skip_domains=skip,
+        limit_per_domain=args.limit_per_domain,
+        max_attempts=args.max_attempts,
+        global_concurrency=args.concurrency,
+        timeout=args.timeout,
+        extract_workers=args.workers,
+        default_policy=DomainPolicy(
+            rps=args.rps, max_rps=args.max_rps, concurrency=args.concurrency
+        ),
+        url_template=url_template(args.timestamp),
+        source=SOURCE,
+        shared_group=ARCHIVE_HOST,
+    )
+    counts = Crawler(config).run()
+    print(f"Wayback finished: {dict(counts)}")
+    return 0
+
+
+def command_merge(args: argparse.Namespace) -> int:
+    from vibiomir.ingest.merge import merge_corpus
+
+    _setup_logging(args.log_file)
+    report = merge_corpus(
+        args.manifest, args.parts, args.out, coverage_path=args.coverage, version=args.version
+    )
+    print(f"Merged {report.rows} rows ({report.unique_ids} unique ids) from {report.parts} parts; "
+          f"dropped {report.duplicate_rows} duplicate rows, {report.url_mismatches} url mismatches")
+    for language, counts in sorted(report.by_language.items()):
+        print(f"  {language}: total {counts['total']} ok {counts['ok']} short {counts['short']} "
+              f"missing {counts['missing']}")
+    return 0
+
+
+def command_export_jsonl(args: argparse.Namespace) -> int:
+    from vibiomir.ingest.merge import export_jsonl, iter_corpus
+    from vibiomir.ingest.official import read_id_file
+
+    ids = read_id_file(args.ids) if args.ids else None
+    rows = iter_corpus(args.corpus, ids=ids, languages=args.language,
+                       include_missing=args.include_missing)
+    written = export_jsonl(rows, args.output, limit=args.limit)
+    print(f"Wrote {written} documents to {args.output}")
+    return 0
+
+
 def command_reset(args: argparse.Namespace) -> int:
     from vibiomir.ingest.state import CrawlState
 
@@ -200,6 +275,50 @@ def add_ingest_parser(subparsers) -> None:
     bootstrap.add_argument("--out", help="default data/interim/parts/hf_<dataset>")
     bootstrap.add_argument("--log-file", default="data/interim/logs/bootstrap.log")
     bootstrap.set_defaults(handler=command_bootstrap)
+
+    wayback = commands.add_parser(
+        "wayback", help="Fetch pages the crawl could not get from the Wayback Machine"
+    )
+    wayback.add_argument("--state", default=DEFAULT_STATE, help="crawl state to read from")
+    wayback.add_argument("--wayback-state", help="default: wayback_state.sqlite next to --state")
+    wayback.add_argument("--out", default="data/interim/parts/wayback")
+    wayback.add_argument("--samples", default="data/raw/html_samples_wayback")
+    wayback.add_argument("--log-file", default="data/interim/logs/wayback.log")
+    wayback.add_argument("--domain", action="append", help="only these domains (repeatable)")
+    wayback.add_argument(
+        "--skip-domain", action="append", help="default: pubmed.ncbi.nlm.nih.gov and vov.vn"
+    )
+    wayback.add_argument("--timestamp", default="2026", help="prefer captures near this date")
+    wayback.add_argument("--limit-per-domain", type=int)
+    wayback.add_argument("--max-attempts", type=int, default=3)
+    wayback.add_argument("--concurrency", type=int, default=6, help="open requests to Wayback")
+    wayback.add_argument("--rps", type=float, default=1.0, help="start rate, all domains")
+    wayback.add_argument("--max-rps", type=float, default=3.0, help="rate ceiling, all domains")
+    wayback.add_argument("--timeout", type=float, default=60.0)
+    wayback.add_argument("--workers", type=int, default=2)
+    wayback.set_defaults(handler=command_wayback)
+
+    merge = commands.add_parser("merge", help="One row per official id -> data/processed/corpus")
+    merge.add_argument("--manifest", default="data/interim/manifest.parquet")
+    merge.add_argument(
+        "--parts", nargs="+",
+        default=["data/interim/parts/crawl", "data/interim/parts/pubmed",
+                 "data/interim/parts/wayback"],
+    )
+    merge.add_argument("--out", default="data/processed/corpus")
+    merge.add_argument("--coverage", default="data/processed/coverage.csv")
+    merge.add_argument("--version", default="v0")
+    merge.add_argument("--log-file", default="data/interim/logs/merge.log")
+    merge.set_defaults(handler=command_merge)
+
+    export = commands.add_parser("export-jsonl", help="Corpus subset as JSONL for vibiomir run")
+    export.add_argument("--corpus", default="data/processed/corpus")
+    export.add_argument("--output", required=True)
+    export.add_argument("--ids", help="parquet/txt of ids to export")
+    export.add_argument("--language", action="append", choices=["vi", "en", "zh"])
+    export.add_argument("--limit", type=int)
+    export.add_argument("--include-missing", action="store_true")
+    export.set_defaults(handler=command_export_jsonl)
 
     reset = commands.add_parser("reset", help="Mark pages pending again, e.g. after a fix")
     reset.add_argument("--state", default=DEFAULT_STATE)
