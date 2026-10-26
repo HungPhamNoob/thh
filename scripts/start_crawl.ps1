@@ -19,7 +19,7 @@ $Commands = @{
              "--log-file data/interim/logs/crawl_vov.log"
     pubmed = "ingest pubmed --log-file data/interim/logs/pubmed.log"
     wayback = "ingest wayback --skip-domain pubmed.ncbi.nlm.nih.gov --skip-domain vov.vn " +
-              "--skip-domain dantri.com.vn --skip-domain www.qdnd.vn --concurrency 8 " +
+              "--concurrency 8 " +
               "--log-file data/interim/logs/wayback.log"
 }
 
