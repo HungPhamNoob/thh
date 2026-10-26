@@ -173,10 +173,13 @@ def command_merge(args: argparse.Namespace) -> int:
 
     _setup_logging(args.log_file)
     report = merge_corpus(
-        args.manifest, args.parts, args.out, coverage_path=args.coverage, version=args.version
+        args.manifest, args.parts, args.out, coverage_path=args.coverage, version=args.version,
+        clean=not args.no_clean,
     )
     print(f"Merged {report.rows} rows ({report.unique_ids} unique ids) from {report.parts} parts; "
-          f"dropped {report.duplicate_rows} duplicate rows, {report.url_mismatches} url mismatches")
+          f"dropped {report.duplicate_rows} duplicate rows and {report.home_redirects} home-page "
+          f"redirects, {report.url_mismatches} url mismatches; cleaned {report.cleaned_docs} "
+          f"docs (-{report.cleaned_chars} chars)")
     for language, counts in sorted(report.by_language.items()):
         print(f"  {language}: total {counts['total']} ok {counts['ok']} short {counts['short']} "
               f"missing {counts['missing']}")
@@ -308,6 +311,7 @@ def add_ingest_parser(subparsers) -> None:
     merge.add_argument("--out", default="data/processed/corpus")
     merge.add_argument("--coverage", default="data/processed/coverage.csv")
     merge.add_argument("--version", default="v0")
+    merge.add_argument("--no-clean", action="store_true", help="keep boilerplate paragraphs")
     merge.add_argument("--log-file", default="data/interim/logs/merge.log")
     merge.set_defaults(handler=command_merge)
 

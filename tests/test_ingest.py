@@ -130,6 +130,20 @@ class StateTest(unittest.TestCase):
             self.assertEqual(state.reset(["a.vn"], ["ok"]), 1)
             self.assertEqual([i for i, _ in state.iter_todo("a.vn", max_attempts=1)], [1])
 
+    @unittest.skipIf(httpx is None, "ingest extra not installed")
+    def test_sink_flushes_slow_crawls_by_time(self):
+        from vibiomir.ingest.fetch import ResultSink
+
+        with tempfile.TemporaryDirectory() as tmp, CrawlState(Path(tmp) / "s.sqlite") as state:
+            state.seed([(1, "https://a.vn/1"), (2, "https://a.vn/2")])
+            sink = ResultSink(state, Path(tmp) / "parts", flush_every=1000, flush_interval=3600)
+            sink.add(PageUpdate(1, "ok"), {"id": 1, "text": "x"})
+            self.assertEqual(list((Path(tmp) / "parts").glob("*.parquet")), [])
+            sink.flush_interval = 0
+            sink.add(PageUpdate(2, "ok"), {"id": 2, "text": "y"})
+            self.assertEqual(len(list((Path(tmp) / "parts").glob("*.parquet"))), 1)
+            self.assertEqual(list(state.iter_todo("a.vn", max_attempts=3)), [])
+
 
 ARTICLE = """<html><head><meta charset="utf-8"></head><body><h1>Bài {n}</h1>
 <div class="article__body">{body}</div></body></html>"""
@@ -478,6 +492,61 @@ class MergeTest(unittest.TestCase):
         self.assertEqual(written, 4)
         self.assertEqual(documents[0].metadata["source"], "crawl")
         self.assertIn('"rows": 6', info)
+
+    def test_home_page_redirects_never_win_and_boilerplate_is_dropped(self):
+        import pyarrow as pa
+
+        from vibiomir.ingest.fetch import write_part
+        from vibiomir.ingest.merge import iter_corpus, merge_corpus
+
+        hotline = "Gọi HOTLINE để đặt lịch khám."
+        ids = list(range(1, 41))
+        manifest = {"id": ids, "url": [f"https://a.vn/bai-{i}" for i in ids],
+                    "domain": ["a.vn"] * 40, "language": ["vi"] * 40}
+        rows = [{"id": i, "url": f"https://a.vn/bai-{i}", "final_url": f"https://a.vn/bai-{i}",
+                 "title": f"Bài {i}", "source": "crawl", "fetched_at": "2026-10-25",
+                 "text": f"Bài {i}\n\n" + f"Nội dung riêng {i}. " * 20 + f"\n\n{hotline}"}
+                for i in ids]
+        rows[0] = {**rows[0], "final_url": "https://a.vn/", "text": "Trang chủ\n\n" + "menu " * 80}
+        with tempfile.TemporaryDirectory() as tmp_name:
+            tmp = Path(tmp_name)
+            pq.write_table(pa.table(manifest), tmp / "manifest.parquet")
+            (tmp / "crawl").mkdir()
+            write_part(rows, tmp / "crawl" / "part-a.parquet")
+            report = merge_corpus(tmp / "manifest.parquet", [tmp / "crawl"], tmp / "corpus")
+            out = {r["id"]: r for r in iter_corpus(tmp / "corpus", include_missing=True)}
+        self.assertEqual(report.home_redirects, 1)
+        self.assertEqual(out[1]["source"], "missing")
+        self.assertEqual(report.cleaned_docs, 39)
+        self.assertNotIn(hotline, out[2]["text"])
+        self.assertTrue(out[2]["text"].startswith("Bài 2\n\nNội dung riêng 2."))
+
+
+class CleanTest(unittest.TestCase):
+    def test_noise_boilerplate_and_related_tail_are_removed(self):
+        from vibiomir.ingest.clean import BoilerplateModel, clean_text
+        from vibiomir.ingest.fetch import redirected_home
+
+        body = "\n\n".join(f"Đoạn {i} nói về bệnh gan." for i in range(10))
+        text = f"Tiêu đề\n\n{body}\n\n| |\n\nChia sẻ\n\n{body}\n\nCác tin khác\n\nBài khác 1"
+        self.assertEqual(clean_text(text, frozenset({"Chia sẻ"})), f"Tiêu đề\n\n{body}\n\n{body}")
+        # A "related" heading early in the page is a section title, not the tail.
+        early = f"Tiêu đề\n\nCác tin khác\n\n{body}"
+        self.assertEqual(clean_text(early), early)
+
+        model = BoilerplateModel(min_docs=3, min_share=0.5)
+        for i in range(4):
+            model.observe("a.vn", f"T{i}\n\nriêng {i}\n\nChia sẻ")
+        model.observe("b.vn", "T\n\nChia sẻ")
+        self.assertEqual(model.boilerplate(), {"a.vn": frozenset({"Chia sẻ"})})
+
+        self.assertTrue(redirected_home("https://a.vn/bai-1/", "https://a.vn"))
+        self.assertTrue(redirected_home(
+            "https://a.vn/bai-1/", "https://web.archive.org/web/20240101000000id_/https://a.vn/"
+        ))
+        self.assertFalse(redirected_home("https://a.vn/", "https://a.vn/"))
+        self.assertFalse(redirected_home("https://a.vn/bai-1", "https://a.vn/bai-1"))
+        self.assertFalse(redirected_home("https://a.vn/bai-1", "https://a.vn/?p=1"))
 
 
 if __name__ == "__main__":

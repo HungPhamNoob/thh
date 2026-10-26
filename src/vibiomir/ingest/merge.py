@@ -6,6 +6,9 @@ winner per id is the first by: text long enough (``ok``) > source priority > new
 ``fetched_at``. Ids without any row are kept with empty text and ``source=missing``, so the
 corpus always has exactly one row per id in ``links_corpus``.
 
+Rows whose page redirected to the site's front page (a removed article) never win. Before a
+row is written, ``clean.clean_text`` drops boilerplate paragraphs learned per domain.
+
 Two passes keep memory low: the first reads only what ranking needs, the second copies the
 winning rows into id buckets, and each bucket is then sorted, joined with the manifest and
 written as one final part.
@@ -14,6 +17,7 @@ written as one final part.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import logging
 import os
@@ -24,8 +28,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from vibiomir.ingest.clean import BoilerplateModel, clean_text
 from vibiomir.ingest.extract import MIN_OK_CHARS
-from vibiomir.ingest.fetch import PART_COLUMNS
+from vibiomir.ingest.fetch import PART_COLUMNS, redirected_home
 
 log = logging.getLogger("vibiomir.ingest")
 
@@ -43,6 +48,9 @@ class MergeReport:
     url_mismatches: int
     duplicate_rows: int
     parts: int
+    home_redirects: int = 0
+    cleaned_docs: int = 0
+    cleaned_chars: int = 0
 
 
 def part_schema():
@@ -71,15 +79,22 @@ def find_parts(dirs: Iterable[str | Path]) -> list[Path]:
 
 
 def select_winners(parts: Sequence[Path]):
-    """Return ``(winners, total_rows)``; ``winners`` maps part index -> sorted row indices."""
+    """Return ``(winners, total_rows, home_redirects)``.
+
+    ``winners`` maps part index -> sorted row indices; rows that redirected to the front page
+    are dropped before ranking and counted in ``home_redirects``.
+    """
     import numpy as np
     import pyarrow as pa
     import pyarrow.compute as pc
     import pyarrow.parquet as pq
 
     keys = []
+    home_redirects = 0
     for index, path in enumerate(parts):
-        table = pq.read_table(path, columns=["id", "source", "fetched_at", "title", "text"])
+        table = pq.read_table(
+            path, columns=["id", "url", "final_url", "source", "fetched_at", "title", "text"]
+        )
         body = pc.subtract(
             pc.utf8_length(pc.fill_null(table["text"], "")),
             pc.utf8_length(pc.fill_null(table["title"], "")),
@@ -97,8 +112,13 @@ def select_winners(parts: Sequence[Path]):
                 }
             )
         )
+        home = [redirected_home(u or "", f) for u, f in
+                zip(table["url"].to_pylist(), table["final_url"].to_pylist())]
+        if any(home):
+            home_redirects += sum(home)
+            keys[-1] = keys[-1].filter(pc.invert(pa.array(home)))
     if not keys:
-        return {}, 0
+        return {}, 0, 0
     combined = pa.concat_tables(keys)
     order = pc.sort_indices(
         combined,
@@ -114,7 +134,7 @@ def select_winners(parts: Sequence[Path]):
     winners: dict[int, np.ndarray] = {}
     for index in np.unique(part_index):
         winners[int(index)] = np.sort(row_index[part_index == index])
-    return winners, combined.num_rows
+    return winners, combined.num_rows + home_redirects, home_redirects
 
 
 def merge_corpus(
@@ -124,6 +144,7 @@ def merge_corpus(
     coverage_path: str | Path | None = None,
     version: str = "v0",
     bucket_rows: int = BUCKET_ROWS,
+    clean: bool = True,
 ) -> MergeReport:
     import numpy as np
     import pyarrow as pa
@@ -141,7 +162,8 @@ def merge_corpus(
 
     parts = find_parts(part_dirs)
     log.info("merging %d parts into %d buckets", len(parts), len(starts))
-    winners, total_rows = select_winners(parts)
+    winners, total_rows, home_redirects = select_winners(parts)
+    model = BoilerplateModel()
 
     staging = out_dir.with_name(out_dir.name + ".staging")
     if staging.exists():
@@ -153,6 +175,9 @@ def merge_corpus(
         for index, rows in winners.items():
             table = pq.read_table(parts[index]).select([n for n, _ in PART_COLUMNS])
             table = table.cast(schema).take(pa.array(rows))
+            if clean:
+                for domain, text in zip(table["domain"].to_pylist(), table["text"].to_pylist()):
+                    model.observe(domain, text or "")
             bucket = np.searchsorted(starts, table["id"].to_numpy(), side="right") - 1
             for b in np.unique(bucket):
                 if int(b) not in writers:
@@ -162,6 +187,8 @@ def merge_corpus(
         for writer in writers.values():
             writer.close()
 
+    boilerplate = model.boilerplate() if clean else None
+    cleaned_docs = cleaned_chars = 0
     tmp_out = out_dir.with_name(out_dir.name + ".tmp")
     if tmp_out.exists():
         shutil.rmtree(tmp_out)
@@ -173,6 +200,10 @@ def merge_corpus(
         expected = manifest.slice(b * bucket_rows, bucket_rows)
         path = staging / f"bucket-{b:03d}.parquet"
         found = pq.read_table(path) if path.exists() else schema.empty_table()
+        if boilerplate is not None:
+            found, docs, chars = _clean_table(found, boilerplate)
+            cleaned_docs += docs
+            cleaned_chars += chars
         merged, mismatches = _fill_bucket(expected, found, schema)
         url_mismatches += mismatches
         rows_written += merged.num_rows
@@ -187,8 +218,11 @@ def merge_corpus(
         by_language=dict(by_language),
         by_domain=dict(by_domain),
         url_mismatches=url_mismatches,
-        duplicate_rows=total_rows - sum(len(r) for r in winners.values()),
+        duplicate_rows=total_rows - home_redirects - sum(len(r) for r in winners.values()),
         parts=len(parts),
+        home_redirects=home_redirects,
+        cleaned_docs=cleaned_docs,
+        cleaned_chars=cleaned_chars,
     )
     if not report.rows == report.unique_ids == len(manifest_ids):
         raise RuntimeError(
@@ -202,6 +236,28 @@ def merge_corpus(
     if coverage_path is not None:
         write_coverage(report, coverage_path)
     return report
+
+
+def _clean_table(table, boilerplate: dict[str, frozenset[str]]):
+    """Apply ``clean_text`` per row; return ``(table, changed_docs, removed_chars)``."""
+    import pyarrow as pa
+
+    texts, hashes = [], []
+    changed = removed = 0
+    for domain, text, digest in zip(table["domain"].to_pylist(), table["text"].to_pylist(),
+                                    table["text_sha256"].to_pylist()):
+        cleaned = clean_text(text or "", boilerplate.get(domain, frozenset()))
+        if cleaned != (text or ""):
+            changed += 1
+            removed += len(text or "") - len(cleaned)
+            digest = hashlib.sha256(cleaned.encode("utf-8")).hexdigest()
+        texts.append(cleaned)
+        hashes.append(digest)
+    names = table.schema.names
+    table = table.set_column(names.index("text"), "text", pa.array(texts, pa.string()))
+    table = table.set_column(names.index("text_sha256"), "text_sha256",
+                             pa.array(hashes, pa.string()))
+    return table, changed, removed
 
 
 def _fill_bucket(expected, found, schema):
@@ -284,6 +340,9 @@ def _write_info(path: Path, report: MergeReport, part_dirs, version: str) -> Non
         "input_parts": report.parts,
         "part_dirs": [str(p) for p in part_dirs],
         "duplicate_rows_dropped": report.duplicate_rows,
+        "home_redirect_rows_dropped": report.home_redirects,
+        "cleaned_docs": report.cleaned_docs,
+        "cleaned_chars": report.cleaned_chars,
         "url_mismatches": report.url_mismatches,
         "by_language": {k: dict(v) for k, v in sorted(report.by_language.items())},
     }
