@@ -160,7 +160,7 @@ Trên Windows, `powershell -ExecutionPolicy Bypass -File scripts/start_crawl.ps1
 ### 2.7 Nguồn dự phòng Wayback Machine (D7, chạy từ 26/10)
 
 ```bash
-vibiomir ingest wayback --skip-domain pubmed.ncbi.nlm.nih.gov --skip-domain vov.vn --concurrency 8
+vibiomir ingest wayback --skip-domain pubmed.ncbi.nlm.nih.gov --skip-domain vov.vn \n  --skip-domain zysjonline.com --skip-domain pmc-ecm-healthblog.beta.pharmacity.io --concurrency 8
 vibiomir ingest status --state data/interim/wayback_state.sqlite
 ```
 
@@ -169,6 +169,7 @@ vibiomir ingest status --state data/interim/wayback_state.sqlite
 - Trong state Wayback, `gone` nghĩa là Wayback không có bản lưu (hoặc chỉ lưu trang 404), còn `blocked` nghĩa là bản lưu chính là trang chặn bot. Trang `blocked` không làm dừng domain, vì nó không cho biết gì về các trang khác.
 - Mọi domain dùng chung một giới hạn tốc độ cho `web.archive.org`: bắt đầu 1 request/giây, trần 3, tối đa 8 request đồng thời, giảm một nửa khi gặp 429/503. `Crawl-delay` của site gốc không áp vào Wayback, vì request không tới site gốc; còn `Disallow` trong robots.txt của site gốc (nếu đọc được) vẫn được tôn trọng.
 - Đo trên 15 URL ngẫu nhiên mỗi domain bằng CDX API (26/10): nhathuoclongchau 15/15, youmed 15/15, laodong 7/15, baodanang 3/15, 120ask 1/15 (chạy thử 3/8), baohaiphong 1/15, baonghean 1/15, zysjonline 0/14. Chạy thử 32 trang: 22 ok, 10 không có bản lưu. Ước tính lấy thêm được khoảng 100–130 nghìn trang. Job bắt đầu lúc 09:21 ngày 26/10 với 277.134 trang của 28 domain, chạy ở ~2–3 trang/giây, mất **~25–40 giờ**.
+- Tỉ lệ có bản lưu đo trên ~340 trang đầu mỗi domain (26/10 09:55): youmed 100%, nhathuoclongchau 94%, hanoimoi 40%, laodong 17%, baodanang 14%, 120ask 10%, baohaiphong 4%, baonghean 2%, iiyi 1%, zysjonline và pmc-ecm-healthblog 0% (hai domain này bị bỏ khỏi job). Ước tính lấy thêm **~100 nghìn trang** (vi ~91 nghìn, zh ~9,6 nghìn).
 - dantri.com.vn và www.qdnd.vn được crawl lại trực tiếp ở 0,5–1 request/giây trước. qdnd lấy được; dantri chỉ còn trả connect timeout (có lẽ đã chặn IP sau khi bị 429), nên từ 09:47 ngày 26/10 hai domain này cũng chạy qua Wayback.
 - Ghi part theo thời gian: crawler ghi part và commit state sau mỗi 2.000 trang **hoặc** mỗi 5 phút (`flush_interval`). Trước khi có mốc 5 phút, mỗi lần process vov.vn (20 giây/trang) bị kill là mất tới hàng nghìn trang chưa ghi, phải tải lại.
 
