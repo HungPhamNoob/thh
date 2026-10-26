@@ -92,6 +92,69 @@ links parquet ─► manifest (id, url, domain, lang) ─► crawl_state.sqlite
 - Golden test: mỗi extractor có 2–3 file HTML mẫu đã cắt gọn trong `tests/fixtures/html/<domain>/`, kèm đoạn text bắt buộc phải có và đoạn bắt buộc không được có.
 - QA: mỗi domain lấy ngẫu nhiên 20 trang so với trình duyệt; đo tỉ lệ text < 200 ký tự; nhận diện trang lỗi trá hình (404 mềm, "Trang không tồn tại", trang thử thách bot) bằng pattern.
 
+### 2.5 Triển khai D4/D5 và số đo pilot (25/10)
+
+Code nằm ở `src/vibiomir/ingest/` (`official.py`, `domains.py`, `state.py`, `fetch.py`, `extract.py`, `cli.py`); cài `pip install -e '.[ingest]'`.
+
+```bash
+vibiomir ingest download-official                 # data/raw/official/
+vibiomir ingest manifest                          # data/interim/manifest.parquet
+vibiomir ingest crawl --limit-per-domain 30       # pilot; bỏ cờ này để crawl hết
+vibiomir ingest crawl --exclude-ids data/interim/bootstrap/lighth0406_covered_ids.parquet  # chỉ phần thiếu
+vibiomir ingest status                            # đếm theo ngôn ngữ / domain / trạng thái
+vibiomir ingest reset --domain 39.net --status short   # đưa trang về pending sau khi sửa extractor
+```
+
+- Dừng bằng Ctrl+C rồi chạy lại cùng lệnh là tiếp tục: state ở `data/interim/crawl_state.sqlite`, text ở `data/interim/parts/crawl/part-*.parquet` (schema §1, thêm cột `encoding`), log ở `data/interim/logs/`. Trang `failed`/`blocked` được thử lại ở lần chạy sau cho tới `--max-attempts` (mặc định 3). Một id có thể xuất hiện ở nhiều part (crawl lại sau `reset`); D6 giữ dòng có `fetched_at` mới nhất.
+- Trạng thái: `pending`, `ok`, `short` (< 200 ký tự ngoài title), `failed`, `blocked`, `gone` (404/410 hoặc 404 mềm), `disallowed` (robots.txt cấm), `unsupported` (không phải HTML: pdf, pptx, ảnh…; không tính vào bộ ngắt domain).
+- Rate limit tính theo **domain đăng ký** (`*.39.net` dùng chung một giới hạn, `ask.39.net` tách riêng): bắt đầu 2 request/giây, cộng 0,5 sau mỗi 50 lần thành công, trần 6; gặp 429/503 thì giảm một nửa. Lý do: pilot đầu giới hạn theo host, ~20 subdomain 39.net cộng lại thành ~40 request/giây và bị chuyển sang captcha `image.39.net/verify.html`. Sau khi gộp nhóm, 627/630 trang 39.net ok.
+- Ngắt theo domain: 10 phản hồi chặn/lỗi liên tiếp mà chưa có trang nào thành công (hoặc 50 liên tiếp) thì dừng domain đó cho lần chạy hiện tại. Trang captcha nhận diện qua mẫu nội dung, qua URL đích (`/verify.html`, …) và qua cùng một text ngắn lặp lại ≥ 5 lần trong một domain.
+- Extractor: rule riêng (bachmai, vinmec, medlatec, giadinhonline, youmed, hellobacsi, vietnamnet, ask.39.net, *.39.net, cnkang, familydoctor, mediawiki) → rule CMS chung cho báo Việt (`.detail-sapo/.detail-content`, `.article__sapo/.article__body`, `.content-fck`, `.td-post-content`, `.entry-content`, `[itemprop=articleBody]`) → trafilatura → container nhiều `<p>` nhất. `text` = title + `\n\n` + thân bài. Giải mã: charset header → `<meta>` → utf-8 → charset-normalizer; gb2312/gbk đọc bằng gb18030 (cnkang khai báo gb2312 trong `<meta>`, header không có charset).
+- User-Agent: `vibiomir-research-crawler/0.1 (+https://github.com/HungPhamNoob/thh; R2AI2026 ViBioMIR research)`; đặt `VIBIOMIR_CRAWLER_CONTACT` để thêm email liên hệ.
+
+Không crawl được từ mạng dev ngày 25/10 (pilot 30 URL/domain, lúc đầu đi qua Cloudflare WARP; đã kiểm tra lại sau khi tắt WARP). Không vượt các cơ chế này; chuyển sang nguồn dự phòng (D7):
+
+| Domain | Link | Hiện tượng |
+|---|---:|---|
+| pubmed.ncbi.nlm.nih.gov | 240.000 | trang proof-of-work (HTTP 203) → dùng E-utilities (D2), mặc định bị bỏ qua khi crawl |
+| www.120ask.com | 98.160 | qua WARP: connect timeout; không WARP: Cloudflare 521 (origin không trả lời), thử lại sau |
+| nhathuoclongchau.com.vn | 79.598 | Cloudflare 403 |
+| laodong.vn | 31.282 | trang JS đặt cookie rồi reload |
+| baohaiphong.vn, baonghean.vn, baodanang.vn, hanoimoi.vn, mega.vietnamplus.vn | 48.012 | 403 "Access Denied" |
+| youmed.vn | 7.189 | 403 với mọi User-Agent có URL liên hệ; không đổi UA để né |
+| zysjonline.com | 6.591 | Cloudflare 403 |
+| pmc-ecm-healthblog.beta.pharmacity.io | 5.333 | nginx 403 |
+| article.iiyi.com, bingli.iiyi.com | 734 | connect timeout / 521 |
+| www.baidu.com | 11 | robots.txt cấm |
+
+vov.vn (9.784 link) chỉ chặn IP của WARP; không WARP thì lấy được nhưng robots.txt đặt `Crawl-delay: 20`, nên chạy thành process riêng (`--domain vov.vn`, ~54 giờ) và được bỏ khỏi job chính bằng `--skip-domain`. Mỗi process ghi part có tên riêng (`part-<thời điểm>-<pid>-NNNNN.parquet`), nên có thể chạy nhiều process song song nếu chúng nhận các domain khác nhau.
+
+Còn lại 693.904 link crawl được (tính cả vov.vn: 703.688). Số đo pilot: ~35–40 trang/giây tổng khi ~80 domain chạy song song, giới hạn bởi băng thông (~4,7 MB/s); HTML trung bình 118 KB/trang; extract 2–20 ms/trang (4 process là đủ); text parquet ~2 KB/trang.
+
+Ước lượng thời gian (trần 6 request/giây mỗi nhóm domain, băng thông như trên):
+
+| Phạm vi | Trang | HTML tải về | Nút thắt | Thời gian |
+|---|---:|---:|---|---|
+| Phần `lighth0406` còn thiếu, bỏ domain bị chặn | 155.837 | ~11 GB | ask.39.net 19.216 trang ở ~2,4 trang/giây (độ trễ 4–13 giây/trang) | ~2,5–3 giờ |
+| Toàn bộ domain crawl được | 693.904 | ~132 GB | băng thông (~7,8 giờ) và suckhoecongdongonline.vn 154.503 trang ở 6 request/giây (~7,2 giờ) | ~8–10 giờ |
+| PubMed qua E-utilities (D2) | 240.000 | – | 1.200 request, ≤ 10 request/giây có API key | vài phút đến ~20 phút |
+
+### 2.6 Phương án đang chạy: tự crawl toàn bộ (quyết định 25/10)
+
+Để minh bạch với quy chế (`competition.md` §5), corpus nộp bài chỉ gồm dữ liệu đội tự thu thập từ `links_corpus`: crawl HTML + PubMed qua E-utilities. Bản `lighth0406` không đưa vào corpus, và bản tải về đã được xoá khỏi máy ngày 25/10. Nếu BTC xác nhận bằng văn bản là được dùng (kèm trích dẫn) thì mới cân nhắc lấp các domain mình bị chặn. Ba job chạy song song:
+
+```bash
+vibiomir ingest pubmed                    # data/interim/parts/pubmed/, XML gốc gz ở data/raw/pubmed/
+vibiomir ingest crawl --skip-domain pubmed.ncbi.nlm.nih.gov --skip-domain vov.vn
+vibiomir ingest crawl --domain vov.vn --links "" --workers 1     # process riêng, Crawl-delay 20
+```
+
+Trên Windows, `powershell -ExecutionPolicy Bypass -File scripts/start_crawl.ps1` chạy cả ba job thành process ẩn, tách khỏi terminal đã khởi động chúng (tạo qua `Win32_Process.Create`), nên đóng terminal hay Claude Code thì job vẫn chạy. Job nào đang chạy thì script không mở thêm bản thứ hai. Log nằm ở `data/interim/logs/{crawl_full,crawl_vov,pubmed}.log`. Script cũng mở `scripts/keep_awake.ps1`: script này gọi `SetThreadExecutionState` để Windows không tự sleep khi máy rảnh, và tự thoát khi không còn job `vibiomir ingest` nào chạy. Gập máy hoặc bấm nút nguồn vẫn làm máy sleep; khi máy dậy, job tự tiếp tục với các request đang dở được retry, nhưng sau khi khởi động lại máy thì phải chạy lại script. Dừng job: `scripts/stop_crawl.ps1 [-Jobs crawl,vov,pubmed]` (dùng `taskkill /T`). Không dùng `Stop-Process` lên riêng process chính: các worker extract (multiprocessing) sẽ sống tiếp, giữ file stdout và làm lần chạy sau thoát ngay.
+
+- Ước lượng lúc bắt đầu (14:56 25/10): còn 620.850 trang crawl được (ngoài PubMed, vov.vn và domain bị chặn). Nút thắt là 39.net (44.038 trang ở ~1,5 request/giây, ~8 giờ, lâu hơn nếu gặp captcha) và suckhoecongdongonline.vn (147.115 trang ở 6 request/giây, ~7 giờ): **~8–12 giờ**. vov.vn chạy riêng ~54 giờ.
+- **PubMed**: 1.200 lô × 200 PMID, POST `efetch.fcgi`, ≤ 3 request/giây khi không có `NCBI_API_KEY` (9 khi có). Mỗi lô ~3 MB XML; cả 240.000 bài mất ~15–20 phút. `text` = `ArticleTitle` + các `AbstractText` (giữ nhãn `BACKGROUND: …`), bỏ `OtherAbstract` và copyright. Trạng thái: `ok` khi abstract ≥ 200 ký tự, `short` khi chỉ có title, `gone` khi PMID không có trong kết quả trả về. Chạy lại thì bỏ qua lô đã có file part.
+- **`lighth0406/R2AI_STAGE3_ds`**: tài khoản cá nhân trên HF (tên hiển thị "Hải Đăng Lê Võ", thuộc tổ chức `AncientWings`), tạo ngày 13/10/2026, **không có dataset card và license**. Đã tải để đối chiếu (revision `9fe2787f8495b52bcf677ac24d8e25f18a7553d5`, `corpus.parquet` SHA256 `2b5bd99b…468b5`; `hf_hub_download` qua `hf_xet` bị treo nên phải dùng `curl`) rồi xoá ngày 25/10. Lệnh `vibiomir ingest bootstrap --dataset lighth0406 --input …` (chỉ dùng để đối chiếu) chỉ giữ những dòng có cặp `id`/`url` khớp file chính thức, giữ nguyên `text`, gắn `source=hf_lighth0406`, `extractor=lighth0406:<extractor gốc>`. Cần BTC đồng ý trước khi đưa vào corpus nộp bài (`competition.md` §8 câu 5).
+
 ## 3. Merge và kiểm tra (D6)
 
 Thứ tự ưu tiên nguồn cho mỗi id: tự crawl (`ok`) > PubMed E-utilities > bản công khai tốt nhất cho domain đó > Wayback > rỗng.

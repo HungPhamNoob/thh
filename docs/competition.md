@@ -93,6 +93,14 @@ overlap_pred(c, g) = LCS_tokens(c, g) / |c|
 - BTC được quyền dùng code và dữ liệu của bài thắng giải.
 - Kết quả chỉ được công nhận khi đội nộp working notes paper mô tả đầy đủ phương pháp.
 
+Nguyên văn liên quan đến dữ liệu (đọc từ `/api/competitions/15/` ngày 25/10/2026):
+
+- Overview: "người tham gia phải cung cấp nguồn dữ liệu. Người tham gia được phép sử dụng dữ liệu từ các nguồn bên ngoài, tuy nhiên phải trích dẫn rõ ràng và cung cấp đầy đủ thông tin về nguồn gốc dữ liệu để Ban tổ chức có thể kiểm tra, xác minh khi cần thiết."
+- Data: "Các đội tự thực hiện việc thu thập nội dung từ các URL được cung cấp, tiền xử lý, phân đoạn và xây dựng cơ sở tri thức"; dữ liệu mở khác là "các tập dữ liệu mở khác về y học mà đội thi có thể hợp pháp sử dụng".
+- Terms: không được xâm phạm bản quyền hay sở hữu trí tuệ của bên khác; BTC có quyền loại thí sinh có hành vi "gian lận, lừa dối hoặc các hành vi chơi không công bằng khác"; người thắng giải trao cho BTC mã nguồn và dữ liệu dùng để tạo bài nộp. Terms dẫn chiếu "Điều khoản Tham gia và Thỏa thuận Sử dụng Dữ liệu" gửi qua email cho từng đội; bản này không có trên trang thi, cần đọc trong email đăng ký.
+
+Hệ quả cho các bản crawl công khai của đội khác (ví dụ `lighth0406/R2AI_STAGE3_ds`): quy chế không cấm rõ, nhưng (1) phải khai báo đúng nguồn, không đổi tên để che; (2) bản `lighth0406` không có license nên chưa rõ có "hợp pháp sử dụng" không; (3) trang Data đặt kỳ vọng các đội tự thu thập. Chỉ đưa vào corpus nộp bài khi BTC (và nên cả tác giả) xác nhận bằng văn bản. Trước đó chỉ dùng để đối chiếu chất lượng và chọn thứ tự crawl.
+
 ## 6. Mốc thời gian (giờ Việt Nam)
 
 | Mốc | Thời điểm |
