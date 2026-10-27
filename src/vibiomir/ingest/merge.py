@@ -238,25 +238,35 @@ def merge_corpus(
     return report
 
 
-def _clean_table(table, boilerplate: dict[str, frozenset[str]]):
-    """Apply ``clean_text`` per row; return ``(table, changed_docs, removed_chars)``."""
+def _clean_table(table, boilerplate: dict[str, frozenset[str]], batch_rows: int = 10_000):
+    """Apply ``clean_text`` per row; return ``(table, changed_docs, removed_chars)``.
+
+    Rows are converted to Python strings ``batch_rows`` at a time, so a bucket of long pages does
+    not need several copies of all its text in memory at once.
+    """
     import pyarrow as pa
 
-    texts, hashes = [], []
+    text_chunks, hash_chunks = [], []
     changed = removed = 0
-    for domain, text, digest in zip(table["domain"].to_pylist(), table["text"].to_pylist(),
-                                    table["text_sha256"].to_pylist()):
-        cleaned = clean_text(text or "", boilerplate.get(domain, frozenset()))
-        if cleaned != (text or ""):
-            changed += 1
-            removed += len(text or "") - len(cleaned)
-            digest = hashlib.sha256(cleaned.encode("utf-8")).hexdigest()
-        texts.append(cleaned)
-        hashes.append(digest)
+    for offset in range(0, table.num_rows, batch_rows):
+        batch = table.slice(offset, batch_rows)
+        texts, hashes = [], []
+        for domain, text, digest in zip(batch["domain"].to_pylist(), batch["text"].to_pylist(),
+                                        batch["text_sha256"].to_pylist()):
+            cleaned = clean_text(text or "", boilerplate.get(domain, frozenset()))
+            if cleaned != (text or ""):
+                changed += 1
+                removed += len(text or "") - len(cleaned)
+                digest = hashlib.sha256(cleaned.encode("utf-8")).hexdigest()
+            texts.append(cleaned)
+            hashes.append(digest)
+        text_chunks.append(pa.array(texts, pa.string()))
+        hash_chunks.append(pa.array(hashes, pa.string()))
     names = table.schema.names
-    table = table.set_column(names.index("text"), "text", pa.array(texts, pa.string()))
+    table = table.set_column(names.index("text"), "text",
+                             pa.chunked_array(text_chunks, pa.string()))
     table = table.set_column(names.index("text_sha256"), "text_sha256",
-                             pa.array(hashes, pa.string()))
+                             pa.chunked_array(hash_chunks, pa.string()))
     return table, changed, removed
 
 

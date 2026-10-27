@@ -548,6 +548,27 @@ class CleanTest(unittest.TestCase):
         self.assertFalse(redirected_home("https://a.vn/bai-1", "https://a.vn/bai-1"))
         self.assertFalse(redirected_home("https://a.vn/bai-1", "https://a.vn/?p=1"))
 
+    def test_clean_table_in_batches_matches_one_pass(self):
+        import pyarrow as pa
+
+        from vibiomir.ingest.merge import _clean_table
+
+        texts = [f"T{i}\n\nbody {i}\n\nChia sẻ" for i in range(5)] + [""]
+        table = pa.table({
+            "domain": ["a.vn"] * 6,
+            "text": texts,
+            "text_sha256": [str(i) for i in range(6)],
+        })
+        boiler = {"a.vn": frozenset({"Chia sẻ"})}
+        whole, docs, chars = _clean_table(table, boiler)
+        batched, docs_b, chars_b = _clean_table(table, boiler, batch_rows=2)
+        self.assertEqual((docs, chars), (5, 5 * len("\n\nChia sẻ")))
+        self.assertEqual((docs_b, chars_b), (docs, chars))
+        self.assertEqual(batched["text"].to_pylist(), whole["text"].to_pylist())
+        self.assertEqual(batched["text_sha256"].to_pylist(), whole["text_sha256"].to_pylist())
+        self.assertEqual(whole["text"][0].as_py(), "T0\n\nbody 0")
+        self.assertEqual(whole["text_sha256"][5].as_py(), "5")
+
 
 if __name__ == "__main__":
     unittest.main()
