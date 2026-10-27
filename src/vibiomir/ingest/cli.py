@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 from collections import Counter, defaultdict
@@ -36,10 +37,19 @@ def command_manifest(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_audit_html(args: argparse.Namespace) -> int:
+    from vibiomir.ingest.audit import audit_html_samples
+
+    _, summary = audit_html_samples(args.samples, args.output)
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    print(f"Wrote HTML audit to {args.output}")
+    return 0
+
+
 def command_crawl(args: argparse.Namespace) -> int:
     from vibiomir.ingest.domains import DEFAULT_SKIP_DOMAINS, DomainPolicy
     from vibiomir.ingest.fetch import DEFAULT_USER_AGENT, CrawlConfig, Crawler
-    from vibiomir.ingest.official import read_id_file, read_links
+    from vibiomir.ingest.official import read_id_file, read_links, sample_links_by_domain
 
     _setup_logging(args.log_file)
     user_agent = DEFAULT_USER_AGENT
@@ -64,6 +74,8 @@ def command_crawl(args: argparse.Namespace) -> int:
         respect_robots=not args.ignore_robots,
     )
     links = read_links(args.links) if args.links and Path(args.links).exists() else None
+    if links is not None and args.sample_per_domain:
+        links = sample_links_by_domain(links, args.sample_per_domain, args.sample_seed)
     excluded: set[int] = set()
     for path in args.exclude_ids or []:
         excluded |= read_id_file(path)
@@ -228,7 +240,9 @@ def add_ingest_parser(subparsers) -> None:
 
     download = commands.add_parser("download-official", help="Fetch query + links parquet")
     download.add_argument("--dest", default="data/raw/official")
-    download.add_argument("--revision")
+    from vibiomir.ingest.official import OFFICIAL_REVISION
+
+    download.add_argument("--revision", default=OFFICIAL_REVISION)
     download.set_defaults(handler=command_download_official)
 
     manifest = commands.add_parser("manifest", help="Write id,url,domain,language parquet")
@@ -248,6 +262,12 @@ def add_ingest_parser(subparsers) -> None:
     )
     crawl.add_argument("--exclude-ids", action="append", help="parquet/txt of ids to leave out")
     crawl.add_argument("--limit-per-domain", type=int)
+    crawl.add_argument(
+        "--sample-per-domain",
+        type=int,
+        help="seed a deterministic random sample per host instead of every official URL",
+    )
+    crawl.add_argument("--sample-seed", type=int, default=20261027)
     crawl.add_argument("--max-attempts", type=int, default=3)
     crawl.add_argument("--concurrency", type=int, default=128, help="global open requests")
     crawl.add_argument("--domain-concurrency", type=int, default=4)
@@ -257,6 +277,13 @@ def add_ingest_parser(subparsers) -> None:
     crawl.add_argument("--workers", type=int, default=min(4, os.cpu_count() or 1))
     crawl.add_argument("--ignore-robots", action="store_true")
     crawl.set_defaults(handler=command_crawl)
+
+    audit = commands.add_parser(
+        "audit-html", help="Re-extract saved HTML samples and write a quality CSV"
+    )
+    audit.add_argument("--samples", default="data/raw/html_samples")
+    audit.add_argument("--output", default="data/interim/html_audit.csv")
+    audit.set_defaults(handler=command_audit_html)
 
     pubmed = commands.add_parser("pubmed", help="Title + abstract via NCBI E-utilities")
     pubmed.add_argument("--links", default=DEFAULT_LINKS)

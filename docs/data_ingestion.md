@@ -98,13 +98,42 @@ links parquet ─► manifest (id, url, domain, lang) ─► crawl_state.sqlite
 Code nằm ở `src/vibiomir/ingest/` (`official.py`, `domains.py`, `state.py`, `fetch.py`, `extract.py`, `cli.py`); cài `pip install -e '.[ingest]'`.
 
 ```bash
-vibiomir ingest download-official                 # data/raw/official/
+vibiomir ingest download-official                 # pin revision 71be0e1..., data/raw/official/
 vibiomir ingest manifest                          # data/interim/manifest.parquet
 vibiomir ingest crawl --limit-per-domain 30       # pilot; bỏ cờ này để crawl hết
 vibiomir ingest crawl --exclude-ids data/interim/bootstrap/lighth0406_covered_ids.parquet  # chỉ phần thiếu
+vibiomir ingest audit-html                        # audit lại HTML mẫu, không gọi mạng
 vibiomir ingest status                            # đếm theo ngôn ngữ / domain / trạng thái
 vibiomir ingest reset --domain 39.net --status short   # đưa trang về pending sau khi sửa extractor
 ```
+
+Lệnh pilot an toàn, dùng state/output riêng và lấy ngẫu nhiên xác định 5 URL mỗi host
+(`seed=20261027`, nên chạy lại cho cùng tập mẫu):
+
+```bash
+bash scripts/ingest_all.sh pilot
+# Báo cáo: data/interim/pilot/html_audit.csv
+# HTML thô đã nén: data/raw/html_samples_pilot/<domain>/<id>.html.gz
+```
+
+Dataset được pin ở commit Hugging Face
+`71be0e1239a19dfd7a717e2bc13e3bec21bd0334` (kiểm tra ngày 27/10/2026). Có thể đổi có
+chủ đích bằng `VIBIOMIR_DATASET_REVISION=<sha>`; không dùng `main` âm thầm vì URL/id có thể
+thay đổi giữa hai lần build corpus.
+
+Mẫu kiểm tra trực tiếp ngày 27/10/2026:
+
+| id / nguồn | Kết quả HTML | Cách lấy nội dung |
+|---|---|---|
+| 586, `bachmai.gov.vn` | URL có bài và được search engine index; mạng cloud kiểm tra bị timeout | rule `#content-post .content-excerpt` + `.content-editor`; timeout chuyển fallback |
+| 766441, `youmed.vn` | HTML đã chứa bài; `article .prose` khoảng 6,4 nghìn ký tự | `site:youmed.vn`, không cần trình duyệt JS |
+| 4421055, PubMed 11197 | trang HTML có abstract, nhưng giao diện và anti-bot có thể đổi | lấy title/abstract qua NCBI E-utilities theo PMID |
+| 766483, `baby.39.net` | HTML có `.art_content`, khoảng 1,1 nghìn ký tự tiếng Trung | `site:39.net`, decode charset trước khi parse |
+| 1201110, `www.120ask.com` | fallback trafilatura bỏ sót đáp án và dính menu; HTML có `#d_msCon` + `.b_answerli` | `site:120ask.com` lấy riêng câu hỏi và mọi câu trả lời |
+
+Các con số trên chỉ là smoke sample, không phải tỷ lệ thành công toàn corpus. Dùng
+`audit-html` trên 5–20 mẫu mỗi domain trước khi chạy full; domain có nhiều `short` mới cần thêm
+CSS rule. Playwright chỉ dành cho domain mà HTML tải bằng `httpx` thật sự không chứa nội dung.
 
 - Dừng bằng Ctrl+C rồi chạy lại cùng lệnh là tiếp tục: state ở `data/interim/crawl_state.sqlite`, text ở `data/interim/parts/crawl/part-*.parquet` (schema §1, thêm cột `encoding`), log ở `data/interim/logs/`. Trang `failed`/`blocked` được thử lại ở lần chạy sau cho tới `--max-attempts` (mặc định 3). Một id có thể xuất hiện ở nhiều part (crawl lại sau `reset`); D6 giữ dòng có `fetched_at` mới nhất.
 - Trạng thái: `pending`, `ok`, `short` (< 200 ký tự ngoài title), `failed`, `blocked`, `gone` (404/410 hoặc 404 mềm), `disallowed` (robots.txt cấm), `unsupported` (không phải HTML: pdf, pptx, ảnh…; không tính vào bộ ngắt domain).
@@ -112,6 +141,11 @@ vibiomir ingest reset --domain 39.net --status short   # đưa trang về pendin
 - Ngắt theo domain: 10 phản hồi chặn/lỗi liên tiếp mà chưa có trang nào thành công (hoặc 50 liên tiếp) thì dừng domain đó cho lần chạy hiện tại. Trang captcha nhận diện qua mẫu nội dung, qua URL đích (`/verify.html`, …) và qua cùng một text ngắn lặp lại ≥ 5 lần trong một domain.
 - Extractor: rule riêng (bachmai, vinmec, medlatec, giadinhonline, youmed, hellobacsi, vietnamnet, ask.39.net, *.39.net, cnkang, familydoctor, mediawiki) → rule CMS chung cho báo Việt (`.detail-sapo/.detail-content`, `.article__sapo/.article__body`, `.content-fck`, `.td-post-content`, `.entry-content`, `[itemprop=articleBody]`) → trafilatura → container nhiều `<p>` nhất. `text` = title + `\n\n` + thân bài. Giải mã: charset header → `<meta>` → utf-8 → charset-normalizer; gb2312/gbk đọc bằng gb18030 (cnkang khai báo gb2312 trong `<meta>`, header không có charset).
 - User-Agent: `vibiomir-research-crawler/0.1 (+https://github.com/HungPhamNoob/thh; R2AI2026 ViBioMIR research)`; đặt `VIBIOMIR_CRAWLER_CONTACT` để thêm email liên hệ.
+- **Không dùng LLM để crawl/extract**: HTML chính được lấy bằng HTTP và CSS/trafilatura. LLM
+  không sửa được timeout, robots.txt, CAPTCHA hay nội dung chỉ render bằng JavaScript; dùng nó
+  còn tốn chi phí và có nguy cơ viết lại đoạn văn, làm sai `chunk_text` nguyên văn. Nếu cần LLM,
+  chỉ dùng ngoại tuyến để gợi ý selector/nhóm layout rồi con người kiểm tra và chuyển thành rule
+  xác định, có golden test.
 
 Không crawl được từ mạng dev ngày 25/10 (pilot 30 URL/domain, lúc đầu đi qua Cloudflare WARP; đã kiểm tra lại sau khi tắt WARP). Không vượt các cơ chế này; chuyển sang nguồn dự phòng (D7):
 

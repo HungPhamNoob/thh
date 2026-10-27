@@ -117,6 +117,27 @@ Query dùng JSONL:
 {"id":1,"language":"vi","text":"Câu hỏi y sinh..."}
 ```
 
+Pilot crawler trên URL chính thức, lưu HTML mẫu và sinh báo cáo extractor:
+
+```bash
+pip install -e '.[ingest]'
+export VIBIOMIR_CRAWLER_CONTACT='email-cua-doi@example.com'
+bash scripts/ingest_all.sh pilot
+```
+
+Sau khi xem `data/interim/pilot/html_audit.csv`, chạy từng stage có khả năng resume:
+
+```bash
+bash scripts/ingest_all.sh pubmed
+bash scripts/ingest_all.sh crawl
+bash scripts/ingest_all.sh wayback
+bash scripts/ingest_all.sh merge
+```
+
+Crawler không dùng LLM: HTTP + CSS rule + trafilatura giữ nội dung nguyên văn. PubMed đi qua
+E-utilities; trang chết/bị chặn đi qua Wayback nếu có bản lưu. Xem chi tiết tại
+[`docs/data_ingestion.md`](docs/data_ingestion.md).
+
 Để build một pipeline đầy đủ trên 1,2M documents/chunks:
 
 ```bash

@@ -1,3 +1,4 @@
+import csv
 import gzip
 import tempfile
 import unittest
@@ -30,6 +31,18 @@ class DomainTest(unittest.TestCase):
         self.assertEqual(rate_group("baidianfeng.familydoctor.com.cn"), "familydoctor.com.cn")
         self.assertEqual(rate_group("phuyen.baodaklak.vn"), "baodaklak.vn")
         self.assertEqual(rate_group("bachmai.gov.vn"), "bachmai.gov.vn")
+
+    def test_domain_sample_is_deterministic_and_stratified(self):
+        from vibiomir.ingest.official import sample_links_by_domain
+
+        links = [(i, f"https://a.vn/{i}") for i in range(10)]
+        links += [(100 + i, f"https://b.cn/{i}") for i in range(3)]
+        first = sample_links_by_domain(links, per_domain=2, seed=7)
+        second = sample_links_by_domain(links, per_domain=2, seed=7)
+        self.assertEqual(first, second)
+        self.assertEqual(len(first), 4)
+        self.assertEqual(sum("a.vn" in url for _, url in first), 2)
+        self.assertEqual(sum("b.cn" in url for _, url in first), 2)
 
 
 @unittest.skipIf(httpx is None, "ingest extra not installed")
@@ -67,6 +80,22 @@ class ExtractTest(unittest.TestCase):
         expected = "久咳是怎么回事\n\n咳嗽两个月\n\n补充说明：无\n\n久咳可能是慢性支气管炎。"
         self.assertEqual(extracted.text, expected)
 
+    def test_120ask_rule_keeps_doctor_answer_and_drops_related_content(self):
+        html = """<html><body><div class="b_left">
+        <div class="b_askbox"><h1>三度烫伤如何处理</h1>
+        <div id="d_msCon" class="b_askcont"><p>健康咨询描述：脸部被高温塑料烫伤。</p></div></div>
+        <div class="b_answerbox"><div class="b_answerli">
+        <div class="doctor">李医生 副主任护师</div>
+        <p>建议及时到烧伤科就诊，不能保证完全恢复。</p></div></div></div>
+        <div class="b_right"><p>相关推荐：其他烫伤问题</p></div>
+        <div id="up-complaint">关闭投诉 请选择投诉理由</div></body></html>"""
+        extracted = extract_html(html, "www.120ask.com")
+        self.assertEqual(extracted.extractor, "site:120ask.com")
+        self.assertIn("健康咨询描述：脸部被高温塑料烫伤。", extracted.text)
+        self.assertIn("建议及时到烧伤科就诊，不能保证完全恢复。", extracted.text)
+        self.assertNotIn("相关推荐", extracted.text)
+        self.assertNotIn("关闭投诉", extracted.text)
+
     def test_generic_cms_rule_and_title_matching_og(self):
         body = "Nội dung bài viết về tăng huyết áp. " * 10
         html = f"""<html><head><meta property="og:title" content="Tăng huyết áp | Báo"></head>
@@ -94,6 +123,44 @@ class ExtractTest(unittest.TestCase):
         html = '<div class="article__body">' + "<p>Bài thật.</p>" * 30 + f"<p>{blob}</p></div>"
         extracted = extract_html(f"<html><body><h1>T</h1>{html}</body></html>", "x.vn")
         self.assertNotIn(blob, extracted.text)
+
+
+@unittest.skipIf(httpx is None, "ingest extra not installed")
+class HtmlAuditTest(unittest.TestCase):
+    def test_saved_samples_are_reextracted_and_reported(self):
+        from vibiomir.ingest.audit import audit_html_samples
+
+        article = "<p>Thông tin y khoa được kiểm tra.</p>" * 20
+        chinese = "<p>这是经过检查的医学文章内容。</p>" * 30
+        with tempfile.TemporaryDirectory() as tmp_name:
+            root = Path(tmp_name) / "samples"
+            (root / "youmed.vn").mkdir(parents=True)
+            (root / "baby.39.net").mkdir(parents=True)
+            (root / "blocked.vn").mkdir(parents=True)
+            with gzip.open(root / "youmed.vn" / "1.html.gz", "wb") as handle:
+                handle.write(
+                    f"<html><h1>Zona</h1><article><div class='prose'>{article}</div>"
+                    "</article></html>".encode()
+                )
+            with gzip.open(root / "baby.39.net" / "2.html.gz", "wb") as handle:
+                handle.write(
+                    f"<html><h1>儿童健康</h1><div class='art_content'>{chinese}</div></html>"
+                    .encode()
+                )
+            with gzip.open(root / "blocked.vn" / "3.html.gz", "wb") as handle:
+                handle.write(b"<title>Attention Required! | Cloudflare</title>")
+
+            output = Path(tmp_name) / "audit.csv"
+            rows, summary = audit_html_samples(root, output)
+            with output.open(encoding="utf-8", newline="") as handle:
+                written = list(csv.DictReader(handle))
+
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(len(written), 3)
+        self.assertEqual(summary["status"], {"ok": 2, "blocked": 1})
+        extractors = {row["domain"]: row["extractor"] for row in rows}
+        self.assertEqual(extractors["youmed.vn"], "site:youmed.vn")
+        self.assertEqual(extractors["baby.39.net"], "site:39.net")
 
 
 @unittest.skipIf(httpx is None, "ingest extra not installed")

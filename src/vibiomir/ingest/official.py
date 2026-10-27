@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import random
+from collections import defaultdict
 from pathlib import Path
 
 from vibiomir.ingest.domains import domain_language, url_domain
 
 OFFICIAL_REPO = "AIGuruTinix/ViBioMIR"
+# Dataset revision inspected on 2026-10-27. Pinning keeps ids and URLs reproducible even if the
+# Hugging Face repository changes later; callers can still pass another explicit revision.
+OFFICIAL_REVISION = "71be0e1239a19dfd7a717e2bc13e3bec21bd0334"
 OFFICIAL_FILES = ("query.parquet", "links_corpus_vi_en_zh.parquet")
 LINKS_FILE = "links_corpus_vi_en_zh.parquet"
 
 
-def download_official(dest: str | Path, revision: str | None = None) -> list[Path]:
+def download_official(dest: str | Path, revision: str | None = OFFICIAL_REVISION) -> list[Path]:
     try:
         from huggingface_hub import hf_hub_download
     except ImportError as exc:  # pragma: no cover - depends on optional extra
@@ -46,6 +51,23 @@ def manifest_rows(links: list[tuple[int, str]]) -> list[dict]:
         host = url_domain(url)
         rows.append({"id": doc_id, "url": url, "domain": host, "language": domain_language(host)})
     return rows
+
+
+def sample_links_by_domain(
+    links: list[tuple[int, str]], per_domain: int, seed: int = 20261027
+) -> list[tuple[int, str]]:
+    """Return a deterministic random sample from every host in the official URL list."""
+    if per_domain < 1:
+        raise ValueError("per_domain must be at least 1")
+    grouped: dict[str, list[tuple[int, str]]] = defaultdict(list)
+    for item in links:
+        grouped[url_domain(item[1])].append(item)
+    rng = random.Random(seed)
+    sampled = []
+    for domain in sorted(grouped):
+        rows = grouped[domain]
+        sampled.extend(rng.sample(rows, min(per_domain, len(rows))))
+    return sorted(sampled)
 
 
 def read_id_file(path: str | Path) -> set[int]:

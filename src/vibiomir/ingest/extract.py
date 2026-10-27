@@ -158,6 +158,12 @@ _MEDIAWIKI_DROP = (
 
 # Matched by host suffix, most specific first.
 SITE_RULES: dict[str, SiteRule] = {
+    "120ask.com": SiteRule(
+        "site:120ask.com",
+        body=("#d_msCon", ".b_answerli"),
+        title=(".b_askbox h1", "h1"),
+        min_chars=20,
+    ),
     "bachmai.gov.vn": SiteRule(
         "site:bachmai.gov.vn",
         body=("#content-post .content-excerpt", "#content-post .content-editor"),
