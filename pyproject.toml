@@ -12,9 +12,19 @@ dependencies = ["PyYAML>=6.0", "numpy>=1.26"]
 
 [project.optional-dependencies]
 dense = ["sentence-transformers>=3.0", "faiss-cpu>=1.8"]
-bge = ["FlagEmbedding>=1.3"]
+bge = ["FlagEmbedding>=1.3", "huggingface_hub>=0.24"]
 lucene = ["pyserini>=0.44"]
+colbert = ["colbert-ai>=0.2.19", "huggingface_hub>=0.24"]
 transformers = ["transformers>=4.48", "torch>=2.2"]
+ingest = [
+  "httpx>=0.27",
+  "lxml>=5.0",
+  "cssselect>=1.2",
+  "trafilatura>=1.12",
+  "charset-normalizer>=3.3",
+  "pyarrow>=15.0",
+  "huggingface_hub>=0.24",
+]
 dev = ["pytest>=8.0", "ruff>=0.7"]
 
 [project.scripts]
@@ -26,6 +36,10 @@ where = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+exclude = ["build"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

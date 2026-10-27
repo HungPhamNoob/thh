@@ -9,7 +9,15 @@ from vibiomir.fusion import build_fusion
 from vibiomir.query import build_query_processor
 from vibiomir.reranking import build_reranker
 from vibiomir.retrieval import build_retriever
-from vibiomir.schemas import Chunk, Document, Prediction, Query, QueryVariant, SearchItem, SearchResult
+from vibiomir.schemas import (
+    Chunk,
+    Document,
+    Prediction,
+    Query,
+    QueryVariant,
+    SearchItem,
+    SearchResult,
+)
 from vibiomir.selection import build_selector
 
 
@@ -59,6 +67,8 @@ class SearchPipeline:
                     "order": chunk.order,
                     "start_char": chunk.start_char,
                     "end_char": chunk.end_char,
+                    "language": chunk.language,
+                    "document_text": self.documents[chunk.doc_id].text,
                 },
             )
             for chunk in chunk_list
@@ -82,16 +92,28 @@ class SearchPipeline:
         for retriever_index, (retriever, retriever_config) in enumerate(
             zip(retrievers, retriever_configs)
         ):
+            enabled_variants = set(retriever_config.get("variant_ids", []))
+            enabled_languages = set(retriever_config.get("languages", []))
             fetch_k = int(retriever_config.get("k", default_k))
             base_weight = float(retriever_config.get("weight", 1.0))
             for variant in variants:
+                if enabled_variants and variant.variant_id not in enabled_variants:
+                    continue
                 source = f"r{retriever_index}:{retriever.name}:{variant.variant_id}"
                 results = retriever.search(variant.text, fetch_k, allowed_ids=allowed_ids)
+                filtered: list[SearchResult] = []
                 for result in results:
-                    if result.item_id in items:
-                        result.payload = {**items[result.item_id].payload, **result.payload}
+                    item = items.get(result.item_id)
+                    if item is None:
+                        continue
+                    if enabled_languages and item.payload.get("language") not in enabled_languages:
+                        continue
+                    result.payload = {**item.payload, **result.payload}
                     result.source = source
-                runs[source] = results
+                    filtered.append(result)
+                for rank, result in enumerate(filtered, 1):
+                    result.rank = rank
+                runs[source] = filtered
                 weights[source] = base_weight * variant.weight
         return self.fusion.fuse(runs, weights=weights, k=default_k) if runs else []
 
@@ -143,8 +165,17 @@ class SearchPipeline:
         )
         rerank_pool = int(self.config.get("reranker", {}).get("candidate_k", min(200, chunk_pool)))
         rerank_k = int(self.config.get("reranker", {}).get("output_k", rerank_pool))
+        rerank_variant = self.config.get("reranker", {}).get("query_variant_id")
+        rerank_query = query.text
+        if rerank_variant:
+            try:
+                rerank_query = next(
+                    variant.text for variant in variants if variant.variant_id == rerank_variant
+                )
+            except StopIteration as exc:
+                raise ValueError(f"Missing reranker query variant: {rerank_variant}") from exc
         chunk_results = self.reranker.rerank(
-            query.text,
+            rerank_query,
             chunk_results[:rerank_pool],
             self.chunk_items,
             rerank_k,
@@ -180,4 +211,3 @@ class SearchPipeline:
 
     def run(self, queries: list[Query]) -> list[Prediction]:
         return [self.search(query) for query in queries]
-

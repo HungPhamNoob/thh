@@ -1,0 +1,29 @@
+extends: ../base.yaml
+
+document_retrievers:
+  - type: numpy_index
+    name: smoke_doc_hash
+    index_dir: runs/smoke/index_doc
+    k: 10
+    encoder:
+      type: hash
+      dimension: 64
+      normalize: true
+
+chunk_retrievers:
+  - type: numpy_index
+    name: smoke_chunk_hash
+    index_dir: runs/smoke/index_chunk
+    k: 20
+    encoder:
+      type: hash
+      dimension: 64
+      normalize: true
+
+retrieval:
+  cascade: false
+  document_pool: 10
+  chunk_pool: 20
+
+chunking:
+  min_tokens: 1

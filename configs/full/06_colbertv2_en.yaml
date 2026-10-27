@@ -1,0 +1,37 @@
+extends: ../base.yaml
+
+# Original ColBERTv2 checkpoint and the authors' PLAID index implementation.
+query:
+  type: nllb
+  model_name: facebook/nllb-200-distilled-600M
+  revision: f8d333a098d19b4fd9a8b18f94170487ad3f821d
+  targets: [en]
+  include_original: false
+  weight: 1.0
+
+document_retrievers: []
+chunk_retrievers:
+  - type: colbertv2
+    name: colbertv2_plaid
+    root: artifacts/full/06_colbertv2_en/colbert
+    experiment: vibiomir
+    index_name: chunks.nbits2
+    id_map: artifacts/full/06_colbertv2_en/chunk_ids.jsonl
+    checkpoint: colbert-ir/colbertv2.0
+    checkpoint_revision: c1e84128e85ef755c096a95bdb06b47793b13acf
+    source_revision: cc4f3dc
+    languages: [en]
+    variant_ids: [translate_en]
+    k: 1000
+    weight: 1.0
+
+reranker:
+  type: none
+  candidate_k: 400
+  output_k: 300
+
+retrieval:
+  cascade: false
+  document_pool: 0
+  chunk_pool: 1000
+  chunk_stage_weight: 1.0

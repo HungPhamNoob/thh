@@ -1,0 +1,45 @@
+extends: ../base.yaml
+
+# BMRetriever's released checkpoint is English-only and uses last-token pooling.
+query:
+  type: nllb
+  model_name: facebook/nllb-200-distilled-600M
+  revision: f8d333a098d19b4fd9a8b18f94170487ad3f821d
+  targets: [en]
+  include_original: false
+  weight: 1.0
+
+document_retrievers: []
+chunk_retrievers:
+  - type: faiss
+    name: bmretriever_410m
+    index_dir: artifacts/full/04_bmretriever_en/chunk_index
+    factory: HNSW32
+    languages: [en]
+    variant_ids: [translate_en]
+    k: 1000
+    weight: 1.0
+    encoder:
+      type: transformers
+      model_name: BMRetriever/BMRetriever-410M
+      revision: 569cd749193f627a502aff430585efe48973336e
+      pooling: last_token
+      padding_side: left
+      add_eos: true
+      query_prefix: "Given a medical question, retrieve English biomedical passages that answer it\nQuery: "
+      document_prefix: "Represent this passage\npassage: "
+      query_max_length: 512
+      document_max_length: 512
+      normalize: false
+      batch_size: 32
+
+reranker:
+  type: none
+  candidate_k: 400
+  output_k: 300
+
+retrieval:
+  cascade: false
+  document_pool: 0
+  chunk_pool: 1000
+  chunk_stage_weight: 1.0

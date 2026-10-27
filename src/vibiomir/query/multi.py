@@ -56,13 +56,18 @@ class BiomedicalSynonymExpander(QueryProcessor):
                 additions.extend(synonyms[: self.max_synonyms_per_term])
         if additions:
             text = f"{query.text} {' '.join(dict.fromkeys(additions))}"
-            variants.append(QueryVariant(query.id, text, "biomedical_synonyms", query.language, self.weight))
+            variants.append(
+                QueryVariant(query.id, text, "biomedical_synonyms", query.language, self.weight)
+            )
         return variants
 
 
 @dataclass(slots=True)
 class LocalLLMQueryExpander(QueryProcessor):
-    """Generate BRIGHT/GRF-style search views with an open local causal LM."""
+    """Generate exploratory search views with an open local causal LM.
+
+    This generic prompt set is not a reproduction of Query2doc, GRF, or BRIGHT.
+    """
 
     model_name: str
     modes: list[str] = field(default_factory=lambda: ["keywords", "entities", "reasoning"])
@@ -77,8 +82,12 @@ class LocalLLMQueryExpander(QueryProcessor):
             try:
                 from transformers import pipeline
             except ImportError as exc:
-                raise ImportError("Install `vibiomir-lab[transformers]` for local LLM expansion") from exc
-            self._generator = pipeline("text-generation", model=self.model_name, device_map=self.device)
+                raise ImportError(
+                    "Install `vibiomir-lab[transformers]` for local LLM expansion"
+                ) from exc
+            self._generator = pipeline(
+                "text-generation", model=self.model_name, device_map=self.device
+            )
         return self._generator
 
     def transform(self, query: Query) -> list[QueryVariant]:
@@ -96,10 +105,17 @@ class LocalLLMQueryExpander(QueryProcessor):
             if mode not in prompts:
                 raise ValueError(f"Unknown expansion mode: {mode}")
             prompt = prompts[mode] + query.text
-            generated = generator(prompt, max_new_tokens=self.max_new_tokens, do_sample=False)[0]["generated_text"]
-            expansion = generated[len(prompt) :].strip() if generated.startswith(prompt) else generated.strip()
+            generated = generator(prompt, max_new_tokens=self.max_new_tokens, do_sample=False)[0][
+                "generated_text"
+            ]
+            expansion = (
+                generated[len(prompt) :].strip()
+                if generated.startswith(prompt)
+                else generated.strip()
+            )
             variants.append(
-                QueryVariant(query.id, f"{query.text}\n{expansion}", mode, query.language, self.weight)
+                QueryVariant(
+                    query.id, f"{query.text}\n{expansion}", mode, query.language, self.weight
+                )
             )
         return variants
-

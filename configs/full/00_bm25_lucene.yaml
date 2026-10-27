@@ -1,0 +1,23 @@
+extends: ../base.yaml
+
+# Chunk-first full-corpus lexical baseline. The index is local Lucene, not in-memory BM25.
+document_retrievers: []
+chunk_retrievers:
+  - type: pyserini
+    name: bm25_lucene
+    index_dir: artifacts/full/00_bm25_lucene/chunk_index
+    k1: 0.9
+    b: 0.4
+    k: 1200
+    weight: 1.0
+
+reranker:
+  type: none
+  candidate_k: 600
+  output_k: 400
+
+retrieval:
+  cascade: false
+  document_pool: 0
+  chunk_pool: 1200
+  chunk_stage_weight: 1.0

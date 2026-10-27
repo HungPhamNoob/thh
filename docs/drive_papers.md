@@ -1,6 +1,6 @@
 # Tài liệu tham khảo trong Drive "guru"
 
-Thư mục Drive của Hưng: <https://drive.google.com/drive/folders/1rd9NqjdFfebA5M8cKUBzDOMogBZhSJvJ> (cập nhật 15–16/10/2026). File này là mục lục để agent biết paper nào có sẵn; nội dung đã ánh xạ vào code nằm trong [`source_map.md`](source_map.md).
+Thư mục Drive của Hưng: <https://drive.google.com/drive/folders/1rd9NqjdFfebA5M8cKUBzDOMogBZhSJvJ> (cập nhật 15–16/10/2026). File này là mục lục paper. Trạng thái kiểm chứng source code, phần đã triển khai và phần chủ động bỏ qua nằm trong [`source_map.md`](source_map.md); không suy ra “đã reproduce” chỉ vì paper có trong Drive.
 
 ## Cấu trúc
 
@@ -33,7 +33,7 @@ Cột "Dùng vào việc gì" chỉ điền cho paper đã biết nội dung. Pa
 | 07 | Jina-ColBERT-v2 (2408.16672) | Late interaction đa ngữ, context dài |
 | 08 | ColBERTv2 (2112.01488) | Late interaction + nén vector |
 | 09 | PLAID (2205.09707) | Engine tìm kiếm ColBERT trên corpus lớn |
-| 10 | PARADE (2008.09093) | Gộp điểm passage thành điểm document; tương ứng `aggregation/` |
+| 10 | PARADE (2008.09093) | Learned passage aggregation; chưa triển khai, `aggregation/` chỉ có heuristic |
 | 11 | Late Chunking (2409.04701) | Encode cả tài liệu rồi pool theo chunk, giúp chunk giữ ngữ cảnh |
 | 12 | BMQExpander (2508.11784) | Mở rộng query y sinh (chưa tóm tắt) |
 | 13 | SapBERT (2010.11784) | Từ đồng nghĩa khái niệm y sinh (UMLS) |
@@ -43,7 +43,7 @@ Cột "Dùng vào việc gì" chỉ điền cho paper đã biết nội dung. Pa
 | 17 | Query2doc (2303.07678) | Sinh pseudo-document để mở rộng query |
 | 18 | GPL (2112.07577) | Sinh query giả + pseudo-label để thích nghi domain |
 | 19 | InPars-v2 (2301.01820) | Sinh dữ liệu train retriever bằng LLM mở |
-| 20 | RAPTOR (2401.18059) | Cây tóm tắt phân cấp; chỉ dùng summary làm key index |
+| 20 | RAPTOR (2401.18059) | Cây tóm tắt phân cấp; chưa triển khai, `RecursiveChunker` không phải RAPTOR |
 | 21 | LongRAG (2406.15319) | Đơn vị truy hồi dài; liên quan trực tiếp đến việc chọn độ dài chunk |
 | 22 | BioASQ14b-BITUA (2609.04999) | Hệ thống tham gia BioASQ 14b (chưa tóm tắt) |
 | 23 | BioASQ14b-ARC (2608.01468) | Hệ thống tham gia BioASQ 14b (chưa tóm tắt) |

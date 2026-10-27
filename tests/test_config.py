@@ -3,7 +3,6 @@ from pathlib import Path
 
 from vibiomir.config import load_config
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 

@@ -2,9 +2,13 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+*.egg-info/
+build/
+dist/
 .venv/
 artifacts/
 runs/
 data/raw/
 data/processed/
 
+data/interim/

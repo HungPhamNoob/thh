@@ -64,21 +64,21 @@ Trạng thái: `todo` / `doing` / `done`. Ưu tiên: P0 > P1 > P2.
 
 | Mã | Ưu tiên | Việc | Tiêu chí xong | Trạng thái |
 |---|---|---|---|---|
-| D0 | P0 | Lệnh `vibiomir ingest download-official`: tải `query.parquet` + `links_corpus_vi_en_zh.parquet` về `data/raw/official/`. | 1.200 query, 1.220.598 link, id unique | todo |
-| D1 | P0 | `ingest/domains.py`: bảng domain → ngôn ngữ (94 domain, gồm cả domain Trung có tên "lạ") + manifest `id,url,domain,lang`. | Đếm đúng vi 740.598 / en 240.000 / zh 240.000; có unit test | todo |
-| D2 | P0 | PubMed qua E-utilities (lô 200 PMID, ≤ 10 req/s với API key, resume được) → title + abstract. | ≥ 99% PMID có title; báo cáo tỉ lệ có abstract | todo |
-| D3 | P0 | Nhập bản crawl công khai (`lighth0406/R2AI_STAGE3_ds`, `tmh1008/ViBioMIR-crawled-corpus`) về schema chung, kèm cột `source`. Báo cáo độ phủ và chất lượng theo domain. | `data/processed/coverage.csv`; mỗi domain có 5 mẫu đã so với trang gốc | todo |
-| D4 | P0 | Crawler bất đồng bộ: SQLite state, rate limit theo domain, retry/backoff, nhận diện charset (gb18030), robots.txt, chạy được lại sau khi bị ngắt. | Crawl 1.000 URL rải trên 12 domain lớn, ≥ 95% thành công ở domain truy cập được; kill rồi chạy lại không lấy trùng | todo |
-| D5 | P0 | Extractor: trafilatura mặc định + extractor riêng cho 8 domain Việt và 4 nhóm domain Trung lớn nhất; golden test HTML; QA 20 trang/domain. | Text đúng nội dung chính, đoạn tách bằng xuống dòng, không dính token | todo |
-| D6 | P0 | Merge theo thứ tự ưu tiên nguồn → `data/processed/corpus/` + coverage. v0 xong 26/10, v1 đóng băng 29/10 18:00. | Đúng 1.220.598 dòng, id unique, báo cáo doc rỗng theo domain | todo |
-| D7 | P1 | Nguồn dự phòng cho trang chết hoặc bị chặn: Wayback `id_`; Playwright cho domain chỉ render bằng JS. Không vượt CAPTCHA/anti-bot. | Số doc rỗng giảm, ghi rõ `source` | todo |
+| D0 | P0 | Lệnh `vibiomir ingest download-official`: tải `query.parquet` + `links_corpus_vi_en_zh.parquet` về `data/raw/official/`. | 1.200 query, 1.220.598 link, id unique | done (25/10) |
+| D1 | P0 | `ingest/domains.py`: bảng domain → ngôn ngữ (94 domain, gồm cả domain Trung có tên "lạ") + manifest `id,url,domain,lang`. | Đếm đúng vi 740.598 / en 240.000 / zh 240.000; có unit test | done (25/10): `vibiomir ingest manifest` đếm đúng |
+| D2 | P0 | PubMed qua E-utilities (lô 200 PMID, ≤ 10 req/s với API key, resume được) → title + abstract. | ≥ 99% PMID có title; báo cáo tỉ lệ có abstract | doing (25/10): `vibiomir ingest pubmed` đang chạy; còn báo cáo tỉ lệ có abstract |
+| D3 | P0 | Nhập bản crawl công khai (`lighth0406/R2AI_STAGE3_ds`, `tmh1008/ViBioMIR-crawled-corpus`) về schema chung, kèm cột `source`. Báo cáo độ phủ và chất lượng theo domain. | `data/processed/coverage.csv`; mỗi domain có 5 mẫu đã so với trang gốc | doing (25/10): 25/10 quyết định **không** đưa bản công khai vào corpus nộp bài khi chưa có xác nhận của BTC; `ingest bootstrap` chỉ dùng để so chất lượng |
+| D4 | P0 | Crawler bất đồng bộ: SQLite state, rate limit theo domain, retry/backoff, nhận diện charset (gb18030), robots.txt, chạy được lại sau khi bị ngắt. | Crawl 1.000 URL rải trên 12 domain lớn, ≥ 95% thành công ở domain truy cập được; kill rồi chạy lại không lấy trùng | doing: code + test xong, pilot 25/10 đạt; đang tự crawl toàn bộ (xem `data_ingestion.md` §2.5–2.6) |
+| D5 | P0 | Extractor: trafilatura mặc định + extractor riêng cho 8 domain Việt và 4 nhóm domain Trung lớn nhất; golden test HTML; QA 20 trang/domain. | Text đúng nội dung chính, đoạn tách bằng xuống dòng, không dính token | doing: rule theo site + rule CMS chung + trafilatura; còn QA 20 trang/domain |
+| D6 | P0 | Merge theo thứ tự ưu tiên nguồn → `data/processed/corpus/` + coverage. v0 xong 26/10, v1 đóng băng 29/10 18:00. | Đúng 1.220.598 dòng, id unique, báo cáo doc rỗng theo domain | doing: v0 xong 26/10 09:24 (76,5% id có text), v1 chờ Wayback |
+| D7 | P1 | Nguồn dự phòng cho trang chết hoặc bị chặn: Wayback `id_`; Playwright cho domain chỉ render bằng JS. Không vượt CAPTCHA/anti-bot. | Số doc rỗng giảm, ghi rõ `source` | doing: job Wayback chạy từ 26/10 09:21, ~25–40 giờ |
 | D8 | P0 | Doc store (SQLite hoặc parquet có chỉ mục) để lấy text theo id; xuất JSONL cho subset. | Lấy 1.000 doc ngẫu nhiên < 1 s; RAM < 1 GB | todo |
 
 ### E – đánh giá và nộp bài
 
 | Mã | Ưu tiên | Việc | Tiêu chí xong | Trạng thái |
 |---|---|---|---|---|
-| E1 | P0 | Sửa `evaluation/official.py` cho khớp luật: cặp (c, g) khớp khi **cả** LCS/\|g\| ≥ 0,4 **và** LCS/\|c\| ≥ 0,4; chunk nộp đúng nếu khớp **bất kỳ** chunk vàng nào (không ghép 1–1); recall = số chunk vàng có ít nhất một chunk nộp khớp; F2 tính theo từng query rồi trung bình; `final_score = (doc_f2 + chunk_f2)/2`. Sửa `test_one_to_one_chunk_matching` theo luật mới; thêm test có số liệu tính tay, gồm ca chunk nộp quá dài (chứa trọn chunk vàng nhưng dài hơn 2,5 lần) phải bị tính sai. | Test mới pass; README/docs ghi đúng tên metric | todo |
+| E1 | P0 | Sửa `evaluation/official.py` cho khớp luật: cặp (c, g) khớp khi **cả** LCS/\|g\| ≥ 0,4 **và** LCS/\|c\| ≥ 0,4; chunk nộp đúng nếu khớp **bất kỳ** chunk vàng nào (không ghép 1–1); recall = số chunk vàng có ít nhất một chunk nộp khớp; F2 tính theo từng query rồi trung bình; `final_score = (doc_f2 + chunk_f2)/2`. Sửa `test_one_to_one_chunk_matching` theo luật mới; thêm test có số liệu tính tay, gồm ca chunk nộp quá dài (chứa trọn chunk vàng nhưng dài hơn 2,5 lần) phải bị tính sai. | Test mới pass; README/docs ghi đúng tên metric | done |
 | E2 | P0 | `vibiomir package`: validate (đủ 1.200 id, id là int, doc id thuộc corpus, `chunk_text` là substring, không rỗng), tuỳ chọn kiểu doc id `int\|str`, nén ZIP **một file ở gốc**. | ZIP mở ra đúng 1 file; validator bắt được lỗi cố ý | todo |
 | E3 | P0 | Dev set: (a) silver từ trang hỏi đáp chứa gần nguyên văn query (BM25 điểm vượt trội, người kiểm tra lại); (b) 50–100 query gán tay doc + chunk bằng script gợi ý ứng viên; (c) tuỳ chọn: query tổng hợp kiểu GPL bằng LLM mở. Định dạng giống `examples/gold.json`. | ≥ 100 query có nhãn, ghi rõ nguồn từng nhãn | todo |
 | E4 | P0 | Nhật ký: `docs/submission_log.md` (mỗi lần nộp một dòng) + thư mục `runs/<ngày>_<tên>/` lưu config đã resolve, commit, metric. | Mọi bài nộp đều tra ngược được ra config + commit | todo |
@@ -88,7 +88,7 @@ Trạng thái: `todo` / `doing` / `done`. Ưu tiên: P0 > P1 > P2.
 
 | Mã | Ưu tiên | Việc | Tiêu chí xong | Trạng thái |
 |---|---|---|---|---|
-| R0 | P0 | Runner cho toàn corpus, không nạp hết vào RAM: index doc-level offline (Pyserini + Java 21, text đã tách token bằng `lexical_tokens` để query và doc dùng cùng analyzer; dự phòng `bm25s`), lấy top-N doc → đọc text từ doc store → chunk tại chỗ → chấm chunk trong tập ứng viên → selection → submission. | Chạy 1.200 query < 30 phút trên laptop; RAM < 12 GB | todo |
+| R0 | P0 | Runner cho toàn corpus, không nạp hết vào RAM: local SQLite artifact store + persistent Lucene/FAISS/PLAID indexes, chunk-first hoặc cascade, selection → submission. | Code và smoke test xong; benchmark 1.200 query/RAM trên corpus v1 còn chờ artifact thật | implemented; benchmark pending |
 | R1 | P0 | Query dài nhiều ý: tách câu/ý, rút keyphrase y khoa (LLM mở, ví dụ Qwen2.5-7B-Instruct, chế độ `keywords` đã có), giữ query gốc làm một variant. | Cải thiện trên dev; không giảm doc precision | todo |
 | R2 | P1 | Nhận diện trang nguồn gần trùng query (trang hỏi đáp chứa câu hỏi): điểm BM25 top-1 vượt xa top-2 → coi là doc chắc chắn. | Đo precision của luật trên dev | todo |
 | R3 | P0 | Xuyên ngữ: dịch query VI→EN/ZH (NLLB-200 hoặc LLM mở ≤ 15B), BM25 trên index EN (PubMed) và ZH (bigram CJK); tuỳ chọn MedCPT cho nhánh EN. | Recall doc EN/ZH tăng trên dev | todo |

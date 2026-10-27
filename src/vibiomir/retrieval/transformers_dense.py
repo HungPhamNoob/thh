@@ -23,6 +23,12 @@ class TransformersEncoderRetriever(Retriever):
     normalize_embeddings: bool = True
     query_prefix: str = ""
     document_prefix: str = ""
+    query_max_length: int | None = None
+    document_max_length: int | None = None
+    padding_side: str = "right"
+    add_eos: bool = False
+    document_as_pair: bool = False
+    dimension: int | None = None
     trust_remote_code: bool = False
     device: str | None = None
     faiss_factory: str | None = None
@@ -37,8 +43,16 @@ class TransformersEncoderRetriever(Retriever):
             import torch
             from transformers import AutoModel, AutoTokenizer
         except ImportError as exc:
-            raise ImportError("Install `vibiomir-lab[transformers]` for HF encoder retrieval") from exc
-        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=self.trust_remote_code)
+            raise ImportError(
+                "Install `vibiomir-lab[transformers]` for HF encoder retrieval"
+            ) from exc
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            trust_remote_code=self.trust_remote_code,
+            padding_side=self.padding_side,
+        )
+        if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
+            tokenizer.pad_token = tokenizer.eos_token
         model = AutoModel.from_pretrained(model_name, trust_remote_code=self.trust_remote_code)
         target = self.device or ("cuda" if torch.cuda.is_available() else "cpu")
         model.to(target)
@@ -53,7 +67,14 @@ class TransformersEncoderRetriever(Retriever):
     def _document_tower(self) -> tuple[object, object]:
         return self._query_tower()
 
-    def _encode(self, texts: list[str], tower: tuple[object, object]) -> np.ndarray:
+    def _encode(
+        self,
+        texts: list[str],
+        tower: tuple[object, object],
+        *,
+        max_length: int,
+        as_pair: bool = False,
+    ) -> np.ndarray:
         import torch
         import torch.nn.functional as functional
 
@@ -61,13 +82,32 @@ class TransformersEncoderRetriever(Retriever):
         device = next(model.parameters()).device
         batches: list[np.ndarray] = []
         for start in range(0, len(texts), self.batch_size):
-            encoded = tokenizer(
-                texts[start : start + self.batch_size],
-                padding=True,
-                truncation=True,
-                max_length=self.max_length,
-                return_tensors="pt",
-            )
+            values = texts[start : start + self.batch_size]
+            tokenize_kwargs = {
+                "padding": True,
+                "truncation": True,
+                "max_length": max_length - (1 if self.add_eos else 0),
+                "return_tensors": "pt",
+            }
+            if as_pair:
+                encoded = tokenizer(
+                    [""] * len(values),
+                    values,
+                    **tokenize_kwargs,
+                )
+            elif not self.add_eos:
+                encoded = tokenizer(values, **tokenize_kwargs)
+            else:
+                tokenize_kwargs.pop("padding")
+                tokenize_kwargs.pop("return_tensors")
+                tokenize_kwargs["return_attention_mask"] = False
+                encoded = tokenizer(values, **tokenize_kwargs)
+                if tokenizer.eos_token_id is None:
+                    raise ValueError(f"Tokenizer for {self.model_name} has no eos_token_id")
+                encoded["input_ids"] = [
+                    ids + [tokenizer.eos_token_id] for ids in encoded["input_ids"]
+                ]
+                encoded = tokenizer.pad(encoded, padding=True, return_tensors="pt")
             encoded = {key: value.to(device) for key, value in encoded.items()}
             with torch.no_grad():
                 hidden = model(**encoded).last_hidden_state
@@ -75,7 +115,9 @@ class TransformersEncoderRetriever(Retriever):
             if self.pooling == "cls":
                 embeddings = hidden[:, 0]
             elif self.pooling == "mean":
-                embeddings = (hidden * mask[..., None]).sum(1) / mask.sum(1, keepdim=True).clamp_min(1)
+                embeddings = (hidden * mask[..., None]).sum(1) / mask.sum(
+                    1, keepdim=True
+                ).clamp_min(1)
             elif self.pooling == "last_token":
                 if bool((mask[:, -1].sum() == mask.shape[0]).item()):
                     embeddings = hidden[:, -1]
@@ -84,6 +126,8 @@ class TransformersEncoderRetriever(Retriever):
                     embeddings = hidden[torch.arange(hidden.shape[0], device=device), indices]
             else:
                 raise ValueError(f"Unknown pooling: {self.pooling}")
+            if self.dimension is not None:
+                embeddings = embeddings[:, : self.dimension]
             if self.normalize_embeddings:
                 embeddings = functional.normalize(embeddings, p=2, dim=1)
             batches.append(embeddings.float().cpu().numpy())
@@ -94,7 +138,12 @@ class TransformersEncoderRetriever(Retriever):
     def fit(self, items: Sequence[SearchItem]) -> None:
         self._items = list(items)
         texts = [self.document_prefix + item.text for item in self._items]
-        self._embeddings = self._encode(texts, self._document_tower())
+        self._embeddings = self._encode(
+            texts,
+            self._document_tower(),
+            max_length=self.document_max_length or self.max_length,
+            as_pair=self.document_as_pair,
+        )
         if self.faiss_factory:
             try:
                 import faiss
@@ -108,12 +157,14 @@ class TransformersEncoderRetriever(Retriever):
                 self._faiss_index.train(self._embeddings)
             self._faiss_index.add(self._embeddings)
 
-    def search(
-        self, query: str, k: int, allowed_ids: set[str] | None = None
-    ) -> list[SearchResult]:
+    def search(self, query: str, k: int, allowed_ids: set[str] | None = None) -> list[SearchResult]:
         if self._embeddings is None:
             raise RuntimeError("Retriever must be fitted before search")
-        query_vector = self._encode([self.query_prefix + query], self._query_tower())[0]
+        query_vector = self._encode(
+            [self.query_prefix + query],
+            self._query_tower(),
+            max_length=self.query_max_length or self.max_length,
+        )[0]
         if self._faiss_index is not None and allowed_ids is None:
             scores, indices = self._faiss_index.search(query_vector[None, :], k)
             return [
@@ -154,6 +205,7 @@ class AsymmetricTransformersRetriever(TransformersEncoderRetriever):
 
     def _document_tower(self) -> tuple[object, object]:
         if self._document_model is None or self._document_tokenizer is None:
-            self._document_tokenizer, self._document_model = self._load_tower(self.document_model_name)
+            self._document_tokenizer, self._document_model = self._load_tower(
+                self.document_model_name
+            )
         return self._document_tokenizer, self._document_model
-

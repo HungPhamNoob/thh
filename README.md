@@ -60,17 +60,18 @@ flowchart TD
 src/vibiomir/
 ├── chunking/       fixed, sentence, recursive, contextual
 ├── query/          identity, synonym, NLLB, local-LLM expansion
-├── retrieval/      BM25, SentenceTransformer/FAISS, BGE-M3, Pyserini
+├── indexing/       SQLite artifact store, FAISS/impact/PLAID export
+├── retrieval/      BM25, FAISS, BGE-M3, SPLADE, ColBERTv2, Late Chunking
 ├── fusion/         weighted RRF, normalized CombSUM
-├── reranking/      identity, cross-encoder
+├── reranking/      identity, HF classifier, BGE-M3 multi-vector, Qwen3
 ├── aggregation/    MaxP, top-k mean, log-sum-exp
 ├── selection/      threshold, adaptive score gap, lexical MMR
 ├── pipeline/       document→chunk cascade và chunk-first
 ├── evaluation/     normalization, LCS overlap, macro F2
-└── io/             JSONL, submission writer và provenance validator
+└── io/             JSONL/parquet/Hugging Face input, writer và validator
 ```
 
-Chi tiết trách nhiệm và interface: [`docs/architecture.md`](docs/architecture.md). Mapping 26 paper sang code/config: [`docs/source_map.md`](docs/source_map.md).
+Chi tiết interface: [`docs/architecture.md`](docs/architecture.md). Bảng kiểm chứng paper/source: [`docs/source_map.md`](docs/source_map.md). Hướng dẫn full-corpus: [`docs/full_pipelines.md`](docs/full_pipelines.md).
 
 ## Config và override
 
@@ -83,26 +84,28 @@ vibiomir show-config \
   --set retrieval.chunk_pool=1000
 ```
 
-Các baseline có sẵn:
+Các config trong `configs/experiments/` là ablation in-memory trên subset. Chúng không được
+coi là reproduction paper. Chín pipeline full-corpus, đã tách index và source audit, nằm trong
+`configs/full/`:
 
-| Config | Giả thuyết |
+| Config full | Phương pháp |
 |---|---|
-| `00_bm25_dual_level` | baseline document→chunk chạy CPU |
-| `01_hybrid_multilingual_dense` | BM25 + mGTE + multilingual reranker |
-| `02_bge_m3_three_way` | dense + learned sparse + late interaction |
-| `03_contextual_mgte` | embedding chunk cùng ngữ cảnh toàn document |
-| `04_translate_medcpt` | translate-retrieve + biomedical dual encoder/reranker |
-| `05_reasoning_expansion` | GRF/query2doc/BRIGHT query views bằng open LLM |
-| `06_late_interaction` | token MaxSim và log-sum-exp document aggregation |
-| `07_recursive_chunking` | cấu trúc đoạn thay vì fixed window |
-| `08_f2_adaptive_cutoff` | số kết quả biến thiên theo score gap |
-| `09_bmretriever_rerank` | biomedical dense retrieval + multilingual reranker |
+| `00_bm25_lucene` | BM25/Lucene |
+| `01_mgte_dense` | mGTE + multilingual reranker |
+| `02_bge_m3` | dense + learned sparse + exact three-view candidate rerank |
+| `03_medcpt_en` | NLLB → English MedCPT |
+| `04_bmretriever_en` | NLLB → English BMRetriever |
+| `05_qwen3` | Qwen3 embedding + reranker |
+| `06_colbertv2_en` | NLLB → ColBERTv2/PLAID |
+| `07_splade_v2_en` | NLLB → SPLADE++ impact index |
+| `08_late_chunking_en` | NLLB → Jina Late Chunking |
 
 Kế hoạch chạy baseline theo pha và ablation: [`docs/experiment_guide.md`](docs/experiment_guide.md).
 
 ## Dữ liệu đầu vào
 
-Corpus đã crawl dùng JSONL:
+Corpus có thể là JSONL, một file/thư mục parquet, hoặc một file parquet tải trực tiếp từ Hugging
+Face Dataset. Ví dụ JSONL:
 
 ```json
 {"id":"583","url":"https://...","title":"...","language":"vi","text":"nội dung sạch nhưng giữ nguyên ký tự gốc"}
@@ -114,15 +117,16 @@ Query dùng JSONL:
 {"id":1,"language":"vi","text":"Câu hỏi y sinh..."}
 ```
 
-Để build Lucene trên 1.2M documents/chunks:
+Để build một pipeline đầy đủ trên 1,2M documents/chunks:
 
 ```bash
-vibiomir chunk --config configs/experiments/00_bm25_dual_level.yaml \
-  --corpus data/processed/corpus.jsonl --output data/processed/chunks.jsonl
-bash scripts/build_pyserini_index.sh data/processed/chunks.jsonl artifacts/lucene/chunks
+bash scripts/build_method.sh 00_bm25_lucene data/processed/corpus
+bash scripts/run_method.sh 00_bm25_lucene \
+  data/raw/official/query.parquet path/to/dev_gold.json
 ```
 
-Sau đó đổi retriever sang `type: pyserini`, `index_dir: artifacts/lucene/chunks`. Với dense retrieval, đặt `faiss_factory: HNSW32` hoặc một factory IVF phù hợp RAM/latency.
+`store.sqlite` giữ chunk gốc; Lucene/FAISS/PLAID được lưu local dưới `artifacts/full/`. BTC
+không yêu cầu Qdrant Cloud.
 
 ## Optional dependencies
 
@@ -130,6 +134,7 @@ Sau đó đổi retriever sang `type: pyserini`, `index_dir: artifacts/lucene/ch
 pip install -e '.[dense]'        # SentenceTransformers, CrossEncoder, FAISS
 pip install -e '.[bge]'          # BGE-M3 dense/sparse/ColBERT vectors
 pip install -e '.[lucene]'       # Pyserini
+pip install -e '.[colbert]'       # ColBERTv2/PLAID
 pip install -e '.[transformers]' # NLLB và local LLM query expansion
 ```
 

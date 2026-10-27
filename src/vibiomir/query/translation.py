@@ -12,6 +12,7 @@ _NLLB_CODES = {"vi": "vie_Latn", "en": "eng_Latn", "zh": "zho_Hans"}
 @dataclass(slots=True)
 class NLLBQueryTranslator(QueryProcessor):
     model_name: str = "facebook/nllb-200-distilled-600M"
+    revision: str | None = None
     targets: list[str] = field(default_factory=lambda: ["en", "zh"])
     include_original: bool = True
     weight: float = 0.8
@@ -26,8 +27,10 @@ class NLLBQueryTranslator(QueryProcessor):
         except ImportError as exc:
             raise ImportError("Install `vibiomir-lab[transformers]` for NLLB translation") from exc
         source_code = _NLLB_CODES.get("vi", "vie_Latn")
-        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name, src_lang=source_code)
-        self._model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name)
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            self.model_name, src_lang=source_code, revision=self.revision
+        )
+        self._model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name, revision=self.revision)
 
     def transform(self, query: Query) -> list[QueryVariant]:
         self._load()
@@ -44,6 +47,7 @@ class NLLBQueryTranslator(QueryProcessor):
                 max_new_tokens=192,
             )
             text = self._tokenizer.batch_decode(output, skip_special_tokens=True)[0]
-            variants.append(QueryVariant(query.id, text, f"translate_{target}", target, self.weight))
+            variants.append(
+                QueryVariant(query.id, text, f"translate_{target}", target, self.weight)
+            )
         return variants
-

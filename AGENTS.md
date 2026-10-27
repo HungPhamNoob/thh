@@ -55,6 +55,8 @@ src/vibiomir/
 ├── selection/      threshold_topk, adaptive_gap, mmr
 ├── pipeline/       SearchPipeline: cascade document → chunk
 ├── evaluation/     LCS overlap, P/R/F2
+├── ingest/         tải file chính thức, manifest, crawler (SQLite state, rate limit), extract HTML,
+│                   PubMed, Wayback, merge corpus
 └── cli.py          vibiomir run | chunk | evaluate | validate | show-config
 configs/            base.yaml, components/, experiments/NN_*.yaml
 scripts/            build_pyserini_index.sh, run_sweep.py

@@ -5,7 +5,6 @@ from vibiomir.config import load_config
 from vibiomir.io.dataset import load_documents, load_queries
 from vibiomir.pipeline import SearchPipeline
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 

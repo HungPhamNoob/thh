@@ -9,9 +9,13 @@ chunk_retrievers:
     name: bmretriever
     model_name: BMRetriever/BMRetriever-410M
     pooling: last_token
-    max_length: 512
-    query_prefix: "Instruct: Given a web search query, retrieve relevant biomedical passages.\nQuery: "
-    normalize_embeddings: true
+    query_max_length: 512
+    document_max_length: 512
+    padding_side: left
+    add_eos: true
+    query_prefix: "Given a medical question, retrieve relevant biomedical passages\nQuery: "
+    document_prefix: "Represent this passage\npassage: "
+    normalize_embeddings: false
     faiss_factory: HNSW32
     k: 700
     weight: 1.3

@@ -1,0 +1,49 @@
+extends: ../base.yaml
+
+# Source: FlagOpen/FlagEmbedding BGE-M3. Dense + lexical first stage, exact
+# dense+sparse+ColBERT scoring on the fused candidate pool.
+document_retrievers: []
+chunk_retrievers:
+  - type: faiss
+    name: bge_m3_dense
+    index_dir: artifacts/full/02_bge_m3/dense_chunk_index
+    factory: HNSW32
+    k: 900
+    weight: 1.0
+    encoder:
+      type: bge_m3_dense
+      model_name: BAAI/bge-m3
+      revision: be9f7f99731dba86ab44550821489908ef3b4baa
+      max_length: 1024
+      batch_size: 16
+      use_fp16: true
+  - type: lucene_impact
+    name: bge_m3_sparse
+    index_dir: artifacts/full/02_bge_m3/sparse_chunk_index
+    k: 900
+    weight: 1.0
+    encoder:
+      type: bge_m3_sparse
+      model_name: BAAI/bge-m3
+      revision: be9f7f99731dba86ab44550821489908ef3b4baa
+      max_length: 1024
+      batch_size: 16
+      quantization_factor: 100
+
+reranker:
+  type: bge_m3_multivector
+  model_name: BAAI/bge-m3
+  revision: be9f7f99731dba86ab44550821489908ef3b4baa
+  weights: [0.4, 0.2, 0.4]
+  score_key: colbert+sparse+dense
+  max_query_length: 512
+  max_passage_length: 1024
+  batch_size: 8
+  candidate_k: 250
+  output_k: 180
+
+retrieval:
+  cascade: false
+  document_pool: 0
+  chunk_pool: 1200
+  chunk_stage_weight: 1.0

@@ -1,0 +1,38 @@
+extends: ../base.yaml
+
+# SPLADE++ CoCondenser-EnsembleDistil using the authors' max-log1p-ReLU vectors.
+query:
+  type: nllb
+  model_name: facebook/nllb-200-distilled-600M
+  revision: f8d333a098d19b4fd9a8b18f94170487ad3f821d
+  targets: [en]
+  include_original: false
+  weight: 1.0
+
+document_retrievers: []
+chunk_retrievers:
+  - type: lucene_impact
+    name: splade_v2
+    index_dir: artifacts/full/07_splade_v2_en/chunk_index
+    languages: [en]
+    variant_ids: [translate_en]
+    k: 1000
+    weight: 1.0
+    encoder:
+      type: splade
+      model_name: naver/splade-cocondenser-ensembledistil
+      revision: a13a25e5565dd531d5ef6d38aff988cb1fab0d10
+      max_length: 256
+      batch_size: 16
+      quantization_factor: 100
+
+reranker:
+  type: none
+  candidate_k: 400
+  output_k: 300
+
+retrieval:
+  cascade: false
+  document_pool: 0
+  chunk_pool: 1000
+  chunk_stage_weight: 1.0

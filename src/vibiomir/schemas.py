@@ -46,7 +46,11 @@ class Chunk:
 
     def submission_dict(self) -> dict[str, Any]:
         """Return only fields accepted by the competition submission format."""
-        return {"doc_id": self.doc_id, "chunk_text": self.text, "chunk_order": self.order}
+        return {
+            "doc_id": _numeric_id(self.doc_id),
+            "chunk_text": self.text,
+            "chunk_order": self.order,
+        }
 
 
 @dataclass(slots=True)
@@ -75,13 +79,9 @@ class Prediction:
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def submission_dict(self) -> dict[str, Any]:
-        try:
-            query_id: int | str = int(self.query_id)
-        except ValueError:
-            query_id = self.query_id
         return {
-            "id": query_id,
-            "relevant_docs": self.relevant_docs,
+            "id": _numeric_id(self.query_id),
+            "relevant_docs": [_numeric_id(doc_id) for doc_id in self.relevant_docs],
             "relevant_chunks": [chunk.submission_dict() for chunk in self.relevant_chunks],
         }
 
@@ -94,3 +94,9 @@ class Prediction:
 def dataclass_dict(value: Any) -> dict[str, Any]:
     return asdict(value)
 
+
+def _numeric_id(value: str) -> int | str:
+    try:
+        return int(value)
+    except ValueError:
+        return value

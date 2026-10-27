@@ -19,6 +19,7 @@ class SentenceTransformerRetriever(Retriever):
     normalize_embeddings: bool = True
     query_prefix: str = ""
     document_prefix: str = ""
+    query_prompt_name: str | None = None
     device: str | None = None
     faiss_factory: str | None = None
     trust_remote_code: bool = False
@@ -59,14 +60,14 @@ class SentenceTransformerRetriever(Retriever):
             except ImportError as exc:
                 raise ImportError("Install `vibiomir-lab[dense]` for FAISS indexing") from exc
             dimension = int(self._embeddings.shape[1])
-            self._faiss_index = faiss.index_factory(dimension, self.faiss_factory, faiss.METRIC_INNER_PRODUCT)
+            self._faiss_index = faiss.index_factory(
+                dimension, self.faiss_factory, faiss.METRIC_INNER_PRODUCT
+            )
             if not self._faiss_index.is_trained:
                 self._faiss_index.train(self._embeddings)
             self._faiss_index.add(self._embeddings)
 
-    def search(
-        self, query: str, k: int, allowed_ids: set[str] | None = None
-    ) -> list[SearchResult]:
+    def search(self, query: str, k: int, allowed_ids: set[str] | None = None) -> list[SearchResult]:
         if self._embeddings is None:
             raise RuntimeError("Retriever must be fitted before search")
         model = self._load()
@@ -74,6 +75,7 @@ class SentenceTransformerRetriever(Retriever):
             model.encode(
                 [self.query_prefix + query],
                 normalize_embeddings=self.normalize_embeddings,
+                **({"prompt_name": self.query_prompt_name} if self.query_prompt_name else {}),
             )[0],
             dtype=np.float32,
         )
@@ -141,4 +143,3 @@ class AsymmetricSentenceTransformerRetriever(SentenceTransformerRetriever):
             ),
             dtype=np.float32,
         )
-

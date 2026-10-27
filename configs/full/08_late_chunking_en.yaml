@@ -1,0 +1,48 @@
+extends: ../base.yaml
+
+# Jina AI late chunking: encode the long document once, then pool chunk token spans.
+query:
+  type: nllb
+  model_name: facebook/nllb-200-distilled-600M
+  revision: f8d333a098d19b4fd9a8b18f94170487ad3f821d
+  targets: [en]
+  include_original: false
+  weight: 1.0
+
+document_retrievers: []
+chunk_retrievers:
+  - type: faiss
+    name: late_chunking
+    index_dir: artifacts/full/08_late_chunking_en/chunk_index
+    factory: HNSW32
+    languages: [en]
+    variant_ids: [translate_en]
+    k: 1000
+    weight: 1.0
+    encoder:
+      type: transformers
+      model_name: jinaai/jina-embeddings-v2-small-en
+      revision: 44e7d1d6caec8c883c2d4b207588504d519788d0
+      pooling: mean
+      query_max_length: 512
+      document_max_length: 512
+      normalize: true
+      trust_remote_code: true
+      batch_size: 32
+    indexing:
+      type: late_chunking
+      model_name: jinaai/jina-embeddings-v2-small-en
+      revision: 44e7d1d6caec8c883c2d4b207588504d519788d0
+      max_length: 8192
+      trust_remote_code: true
+
+reranker:
+  type: none
+  candidate_k: 400
+  output_k: 300
+
+retrieval:
+  cascade: false
+  document_pool: 0
+  chunk_pool: 1000
+  chunk_stage_weight: 1.0

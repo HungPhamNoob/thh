@@ -9,6 +9,8 @@ import yaml
 from vibiomir.chunking import build_chunker
 from vibiomir.config import apply_overrides, load_config
 from vibiomir.evaluation import evaluate_submission
+from vibiomir.indexing.cli import add_index_parsers
+from vibiomir.ingest.cli import add_ingest_parser
 from vibiomir.io import (
     load_documents,
     load_queries,
@@ -33,6 +35,14 @@ def command_run(args: argparse.Namespace) -> int:
     predictions = pipeline.run(queries)
     write_submission(predictions, args.output, debug=args.debug)
     print(f"Wrote {len(predictions)} predictions to {args.output}")
+    if args.gold:
+        metrics = evaluate_submission(load_submission(args.output), load_submission(args.gold))
+        serialized = json.dumps(metrics, indent=2, ensure_ascii=False)
+        print(serialized)
+        metrics_path = Path(args.metrics_output or Path(args.output).with_name("metrics.json"))
+        metrics_path.parent.mkdir(parents=True, exist_ok=True)
+        metrics_path.write_text(serialized + "\n", encoding="utf-8")
+        print(f"Wrote metrics to {metrics_path}")
     return 0
 
 
@@ -82,6 +92,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--corpus", required=True)
     run_parser.add_argument("--queries", required=True)
     run_parser.add_argument("--output", required=True)
+    run_parser.add_argument("--gold")
+    run_parser.add_argument("--metrics-output")
     run_parser.add_argument("--debug", action="store_true")
     run_parser.set_defaults(handler=command_run)
 
@@ -96,14 +108,21 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_parser.add_argument("--gold", required=True)
     evaluate_parser.set_defaults(handler=command_evaluate)
 
-    validate_parser = subparsers.add_parser("validate", help="Validate submission schema and text provenance")
+    validate_parser = subparsers.add_parser(
+        "validate", help="Validate submission schema and text provenance"
+    )
     validate_parser.add_argument("--submission", required=True)
     validate_parser.add_argument("--corpus")
     validate_parser.set_defaults(handler=command_validate)
 
-    show_parser = subparsers.add_parser("show-config", help="Render inherited config plus overrides")
+    show_parser = subparsers.add_parser(
+        "show-config", help="Render inherited config plus overrides"
+    )
     add_config_flags(show_parser)
     show_parser.set_defaults(handler=command_show_config)
+
+    add_ingest_parser(subparsers)
+    add_index_parsers(subparsers)
     return parser
 
 
@@ -114,4 +133,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

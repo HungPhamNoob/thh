@@ -3,7 +3,7 @@ extends: ../base.yaml
 query:
   type: nllb
   model_name: facebook/nllb-200-distilled-600M
-  targets: [en, zh]
+  targets: [en]
   include_original: true
   weight: 0.75
 
@@ -17,13 +17,18 @@ chunk_retrievers:
     model_name: ncbi/MedCPT-Query-Encoder
     document_model_name: ncbi/MedCPT-Article-Encoder
     pooling: cls
-    max_length: 512
-    normalize_embeddings: true
+    query_max_length: 64
+    document_max_length: 512
+    document_as_pair: true
+    normalize_embeddings: false
+    languages: [en]
+    variant_ids: [translate_en]
     k: 500
     weight: 1.1
 
 reranker:
-  type: cross_encoder
+  type: hf_sequence_classifier
+  query_variant_id: translate_en
   model_name: ncbi/MedCPT-Cross-Encoder
   max_length: 512
   candidate_k: 250

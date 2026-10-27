@@ -1,0 +1,49 @@
+extends: ../base.yaml
+
+# MedCPT is English-only: translate the Vietnamese query and index English rows only.
+query:
+  type: nllb
+  model_name: facebook/nllb-200-distilled-600M
+  revision: f8d333a098d19b4fd9a8b18f94170487ad3f821d
+  targets: [en]
+  include_original: false
+  weight: 1.0
+
+document_retrievers: []
+chunk_retrievers:
+  - type: faiss
+    name: medcpt
+    index_dir: artifacts/full/03_medcpt_en/chunk_index
+    factory: HNSW32
+    languages: [en]
+    variant_ids: [translate_en]
+    k: 1000
+    weight: 1.0
+    encoder:
+      type: transformers
+      model_name: ncbi/MedCPT-Query-Encoder
+      revision: cf41bd29f1eb5068ee043be68e1440ddad45c79a
+      document_model_name: ncbi/MedCPT-Article-Encoder
+      document_revision: 9b5001ca5f9c7d3eadc8976531718667fa487f49
+      pooling: cls
+      query_max_length: 64
+      document_max_length: 512
+      document_as_pair: true
+      normalize: false
+      batch_size: 64
+
+reranker:
+  type: hf_sequence_classifier
+  query_variant_id: translate_en
+  model_name: ncbi/MedCPT-Cross-Encoder
+  revision: 71caf65d4927987813984f54c284405a13fcca49
+  max_length: 512
+  batch_size: 32
+  candidate_k: 250
+  output_k: 180
+
+retrieval:
+  cascade: false
+  document_pool: 0
+  chunk_pool: 1000
+  chunk_stage_weight: 1.0

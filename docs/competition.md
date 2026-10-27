@@ -59,7 +59,7 @@ overlap_pred(c, g) = LCS_tokens(c, g) / |c|
 ### Hệ quả cho thiết kế
 
 1. **F2 là trung bình của F2 từng query**, không phải F2 của P/R trung bình. Ví dụ đội đứng đầu ngày 21/10 có P 0,2752 và R 0,6651; F2 tính từ hai số trung bình này là 0,518, còn leaderboard ghi 0,4909.
-2. **Precision chunk không ghép 1–1.** Hai chunk nộp cùng khớp một chunk vàng thì cả hai đều được tính đúng. Evaluator trong repo (`src/vibiomir/evaluation/official.py`) đang ghép 1–1, tính F2 từ P/R trung bình và chỉ xét `overlap_gold`, nên **chưa khớp luật**; xem ticket E1 trong [`plan.md`](plan.md).
+2. **Precision chunk không ghép 1–1.** Hai chunk nộp cùng khớp một chunk vàng thì cả hai đều được tính đúng. Evaluator trong repo (`src/vibiomir/evaluation/official.py`) đã được sửa để xét cả hai overlap và macro-average F2 theo query; các ca này có unit test riêng.
 3. **Độ dài chunk nộp phải xấp xỉ chunk vàng.** Nếu chunk nộp chứa trọn chunk vàng thì LCS = |g|, nên cần |c| ≤ 2,5·|g|. Nếu chunk nộp nằm gọn trong chunk vàng thì LCS = |c|, nên cần |c| ≥ 0,4·|g|. Nói cách khác, kể cả khi trúng đúng chỗ, chunk nộp chỉ được tính khi dài khoảng 0,4–2,5 lần chunk vàng; ngoài khoảng đó chắc chắn trượt. Chunk dài cỡ cả tài liệu không còn được tính. Vì vậy phải ước lượng cỡ chunk vàng (đoạn văn, vài câu hay vài đoạn) và cắt chunk theo đúng cỡ đó; đây là tham số quan trọng nhất ở cấp chunk.
 4. **Cách tách token của LCS chưa được công bố.** Repo đang giả định tách theo khoảng trắng sau chuẩn hoá. Nếu BTC cũng làm vậy, với tiếng Trung (gần như không có khoảng trắng) mỗi đoạn viết liền là một token. Khi đó chunk tiếng Trung chỉ nên cắt tại xuống dòng hoặc khoảng trắng, không cắt giữa câu, và text crawl phải giữ đúng ranh giới khoảng trắng của trang gốc. Với điều kiện `overlap_pred`, chunk tiếng Trung gồm nhiều đoạn chỉ khớp khi chunk vàng cũng có số đoạn tương đương.
 5. Chỉ id có trong `links_corpus` mới được tính là nhãn dương.
@@ -79,7 +79,7 @@ overlap_pred(c, g) = LCS_tokens(c, g) / |c|
 ```
 
 - Phải có đủ 1.200 query. Nếu một cấp không có kết quả thì vẫn ghi danh sách rỗng.
-- `id` là số nguyên. Spec yêu cầu `relevant_docs`/`doc_id` là id số nguyên của `links_corpus`, nhưng ví dụ của BTC lại viết dạng chuỗi. Writer hiện tại ghi chuỗi; kiểm tra kiểu nào được chấm đúng ở lần nộp đầu tiên.
+- `id` là số nguyên. Spec yêu cầu `relevant_docs`/`doc_id` là id số nguyên của `links_corpus`, dù ví dụ của BTC viết dạng chuỗi. Writer chuẩn hoá id chỉ gồm chữ số sang JSON number; id mẫu không phải số vẫn được giữ để test nội bộ.
 - `chunk_text` phải được trích từ tài liệu gốc, không được viết lại hoặc sinh mới. `chunk_order` là tuỳ chọn, số nguyên không âm.
 - Nén thành ZIP chứa **đúng một file `.json` ở gốc**, không có thư mục con, rồi tải lên mục *My Submissions*.
 - Giới hạn: public 10 bài/ngày; **private tổng cộng 5 bài**. Bài thiếu file hoặc thiếu câu không được chấm và không bị trừ lượt.
@@ -92,6 +92,14 @@ overlap_pred(c, g) = LCS_tokens(c, g) / |c|
 - Được dùng dữ liệu ngoài nhưng phải trích dẫn và mô tả nguồn đầy đủ để BTC kiểm tra.
 - BTC được quyền dùng code và dữ liệu của bài thắng giải.
 - Kết quả chỉ được công nhận khi đội nộp working notes paper mô tả đầy đủ phương pháp.
+
+Nguyên văn liên quan đến dữ liệu (đọc từ `/api/competitions/15/` ngày 25/10/2026):
+
+- Overview: "người tham gia phải cung cấp nguồn dữ liệu. Người tham gia được phép sử dụng dữ liệu từ các nguồn bên ngoài, tuy nhiên phải trích dẫn rõ ràng và cung cấp đầy đủ thông tin về nguồn gốc dữ liệu để Ban tổ chức có thể kiểm tra, xác minh khi cần thiết."
+- Data: "Các đội tự thực hiện việc thu thập nội dung từ các URL được cung cấp, tiền xử lý, phân đoạn và xây dựng cơ sở tri thức"; dữ liệu mở khác là "các tập dữ liệu mở khác về y học mà đội thi có thể hợp pháp sử dụng".
+- Terms: không được xâm phạm bản quyền hay sở hữu trí tuệ của bên khác; BTC có quyền loại thí sinh có hành vi "gian lận, lừa dối hoặc các hành vi chơi không công bằng khác"; người thắng giải trao cho BTC mã nguồn và dữ liệu dùng để tạo bài nộp. Terms dẫn chiếu "Điều khoản Tham gia và Thỏa thuận Sử dụng Dữ liệu" gửi qua email cho từng đội; bản này không có trên trang thi, cần đọc trong email đăng ký.
+
+Hệ quả cho các bản crawl công khai của đội khác (ví dụ `lighth0406/R2AI_STAGE3_ds`): quy chế không cấm rõ, nhưng (1) phải khai báo đúng nguồn, không đổi tên để che; (2) bản `lighth0406` không có license nên chưa rõ có "hợp pháp sử dụng" không; (3) trang Data đặt kỳ vọng các đội tự thu thập. Chỉ đưa vào corpus nộp bài khi BTC (và nên cả tác giả) xác nhận bằng văn bản. Trước đó chỉ dùng để đối chiếu chất lượng và chọn thứ tự crawl.
 
 ## 6. Mốc thời gian (giờ Việt Nam)
 

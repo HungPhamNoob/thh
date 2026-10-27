@@ -18,29 +18,49 @@ def _jsonl(path: str | Path) -> Iterator[dict]:
                 raise ValueError(f"Invalid JSON at {path}:{line_number}") from exc
 
 
-def load_documents(path: str | Path) -> list[Document]:
-    documents: list[Document] = []
-    for row in _jsonl(path):
+def _parquet_rows(path: str | Path) -> Iterator[dict]:
+    try:
+        import pyarrow.dataset as ds
+    except ImportError as exc:  # pragma: no cover - optional dependency
+        raise ImportError("Install `vibiomir-lab[ingest]` to read parquet input") from exc
+    dataset = ds.dataset(str(path), format="parquet", exclude_invalid_files=True)
+    yield from dataset.to_batches(batch_size=4096)
+
+
+def _rows(path: str | Path) -> Iterator[dict]:
+    path = Path(path)
+    if path.suffix == ".parquet" or path.is_dir():
+        for batch in _parquet_rows(path):
+            yield from batch.to_pylist()
+        return
+    yield from _jsonl(path)
+
+
+def iter_documents(path: str | Path) -> Iterator[Document]:
+    for row in _rows(path):
         text = row.get("text") or row.get("contents") or row.get("content")
         if text is None:
             raise ValueError(f"Document {row.get('id')} has no text/content field")
+        if not str(text).strip():
+            continue
         known = {"id", "text", "contents", "content", "title", "language", "lang", "url"}
-        documents.append(
-            Document(
-                id=str(row["id"]),
-                text=str(text),
-                title=str(row.get("title", "")),
-                language=str(row.get("language", row.get("lang", ""))),
-                url=str(row.get("url", "")),
-                metadata={key: value for key, value in row.items() if key not in known},
-            )
+        yield Document(
+            id=str(row["id"]),
+            text=str(text),
+            title=str(row.get("title", "") or ""),
+            language=str(row.get("language", row.get("lang", "")) or ""),
+            url=str(row.get("url", "") or ""),
+            metadata={key: value for key, value in row.items() if key not in known},
         )
-    return documents
+
+
+def load_documents(path: str | Path) -> list[Document]:
+    return list(iter_documents(path))
 
 
 def load_queries(path: str | Path) -> list[Query]:
     queries: list[Query] = []
-    for row in _jsonl(path):
+    for row in _rows(path):
         text = row.get("text") or row.get("query") or row.get("question")
         if text is None:
             raise ValueError(f"Query {row.get('id')} has no text/query/question field")
@@ -92,4 +112,3 @@ def write_chunks_jsonl(chunks: Iterable[Chunk], path: str | Path) -> None:
                 )
                 + "\n"
             )
-

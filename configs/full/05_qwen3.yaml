@@ -1,0 +1,38 @@
+extends: ../base.yaml
+
+# Official Qwen3 embedding instruction/last-token recipe plus official yes/no reranker.
+document_retrievers: []
+chunk_retrievers:
+  - type: faiss
+    name: qwen3_embedding
+    index_dir: artifacts/full/05_qwen3/chunk_index
+    factory: HNSW32
+    k: 1000
+    weight: 1.0
+    encoder:
+      type: transformers
+      model_name: Qwen/Qwen3-Embedding-0.6B
+      revision: e692b5a16e45607c7e85d81c53e944ac90e6260a
+      pooling: last_token
+      padding_side: left
+      add_eos: true
+      query_prefix: "Instruct: Given a Vietnamese medical question, retrieve relevant biomedical passages in Vietnamese, English, or Chinese that answer the question\nQuery:"
+      query_max_length: 2048
+      document_max_length: 4096
+      normalize: true
+      batch_size: 16
+
+reranker:
+  type: qwen3
+  model_name: Qwen/Qwen3-Reranker-0.6B
+  revision: 5e6622cf95ad785d76528ca3d8341073facc54d1
+  max_length: 2048
+  batch_size: 8
+  candidate_k: 200
+  output_k: 150
+
+retrieval:
+  cascade: false
+  document_pool: 0
+  chunk_pool: 1000
+  chunk_stage_weight: 1.0

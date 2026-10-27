@@ -43,8 +43,10 @@
 ## Điểm cần scale khi dùng full corpus
 
 - In-memory BM25 chỉ dành cho smoke test và sample.
-- Full sparse index dùng Pyserini/Lucene.
-- Dense index dùng FAISS; HNSW dễ bắt đầu, IVF/PQ phù hợp khi RAM hạn chế.
-- BGE-M3 `sparse` và `colbert` trong adapter hiện là exact scoring để ablation trên subset. Với full corpus, export sparse weights vào impact index và dùng PLAID/PyLate cho multi-vector.
+- Full BM25 dùng `JsonCollection`; learned sparse dùng `JsonVectorCollection --impact --pretokenized`. Hai index không dùng chung generator.
+- Dense index dùng FAISS; HNSW dễ bắt đầu, IVF/PQ phù hợp khi RAM hạn chế. Vector và id map nằm cạnh manifest của index.
+- BGE-M3 full-corpus dùng dense FAISS + lexical impact để sinh candidate, sau đó gọi `compute_score` chính chủ cho dense/sparse/ColBERT trên candidate pool.
+- ColBERTv2 dùng `Indexer`/`Searcher` PLAID của repo tác giả; không gọi BGE multi-vector là ColBERTv2.
+- Local `ArtifactStore` (SQLite) giữ exact chunk text và offset. BTC không yêu cầu Qdrant; xem [`full_pipelines.md`](full_pipelines.md).
 - Cache chunks và embeddings theo hash của config để không encode lại giữa ablation.
 
