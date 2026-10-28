@@ -64,7 +64,12 @@ bash scripts/build_vibiomir_method.sh 01_mgte_dense
 Script thực hiện hai bước:
 
 1. Tải/đọc đủ 13 shard, chunk và tạo `artifacts/full/01_mgte_dense/store.sqlite`.
-2. Encode chunk và upsert collection `mgte_dense_chunks` lên Qdrant.
+2. Encode chunk và upsert collection versioned của method lên Qdrant.
+
+Collection production hiện được version theo method và corpus, ví dụ
+`${QDRANT_COLLECTION_PREFIX}_01_mgte_dense_13d60924_chunks`. Script không tự xóa collection cũ;
+point ID deterministic và state local cho phép resume. Manifest Qdrant ghi model/revision, corpus
+revision, chunker, vector size, distance, commit code, timestamp và kết quả sample search.
 
 BM25 không cần Qdrant:
 
@@ -105,6 +110,9 @@ Validator đảm bảo:
 - `chunk_order` nếu có phải là integer không âm;
 - `chunk_text` là substring của document tương ứng trong SQLite;
 - ZIP chỉ chứa duy nhất `submission.json`, không có thư mục con.
+
+Mỗi run còn ghi `manifest.json`, `config_resolved.yaml`, `run.log` và báo cáo GPU. Quy tắc hard
+limit 4 GiB và ma trận từng model nằm trong [`gpu_4gb.md`](gpu_4gb.md).
 
 Đóng gói lại một JSON đã có:
 

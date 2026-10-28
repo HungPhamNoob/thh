@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import hashlib
+import logging
+import os
 from abc import ABC, abstractmethod
 from typing import Any
 
 import numpy as np
 
+from vibiomir.gpu import apply_gpu_memory_limit, is_cuda_oom, record_cuda_oom
 from vibiomir.models import resolve_hf_model
+
+log = logging.getLogger(__name__)
 
 
 class TextEncoder(ABC):
@@ -58,18 +63,26 @@ class SentenceTransformerTextEncoder(TextEncoder):
         device: str | None = None,
         trust_remote_code: bool = False,
         revision: str | None = None,
+        max_length: int | None = None,
+        use_fp16: bool = True,
         **_kwargs,
     ):
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:
             raise ImportError("Install `vibiomir-lab[dense]` for dense indexing") from exc
+        apply_gpu_memory_limit()
         self.model = SentenceTransformer(
             model_name,
             device=device,
             trust_remote_code=trust_remote_code,
             revision=revision,
         )
+        if max_length is not None:
+            self.model.max_seq_length = int(max_length)
+        target = str(self.model.device)
+        if use_fp16 and target.startswith("cuda"):
+            self.model.half()
         self.batch_size = batch_size
         self.normalize = normalize
         self.query_prefix = query_prefix
@@ -81,16 +94,33 @@ class SentenceTransformerTextEncoder(TextEncoder):
         kwargs: dict[str, Any] = {}
         if query and self.query_prompt_name:
             kwargs["prompt_name"] = self.query_prompt_name
-        return np.asarray(
-            self.model.encode(
-                values,
-                batch_size=self.batch_size,
-                normalize_embeddings=self.normalize,
-                show_progress_bar=False,
-                **kwargs,
-            ),
-            dtype=np.float32,
-        )
+        batch_size = self.batch_size
+        while True:
+            try:
+                encoded = self.model.encode(
+                    values,
+                    batch_size=batch_size,
+                    normalize_embeddings=self.normalize,
+                    show_progress_bar=False,
+                    **kwargs,
+                )
+                self.batch_size = batch_size
+                return np.asarray(encoded, dtype=np.float32)
+            except RuntimeError as exc:
+                if not is_cuda_oom(exc):
+                    raise
+                record_cuda_oom()
+                if batch_size > 1:
+                    batch_size = max(1, batch_size // 2)
+                    log.warning("CUDA OOM in sentence encoder; retrying with batch_size=%d", batch_size)
+                    continue
+                if os.getenv("VIBIOMIR_GPU_CPU_FALLBACK", "1") == "1" and str(
+                    self.model.device
+                ).startswith("cuda"):
+                    log.warning("CUDA OOM at batch_size=1; moving sentence encoder to CPU")
+                    self.model.to("cpu")
+                    continue
+                raise RuntimeError("UNSUPPORTED_4GB_VRAM: sentence encoder OOM at batch_size=1") from exc
 
     def encode_documents(self, texts: list[str]) -> np.ndarray:
         return self._encode(texts, False)
@@ -121,6 +151,7 @@ class TransformersTextEncoder(TextEncoder):
         revision: str | None = None,
         document_revision: str | None = None,
         device: str | None = None,
+        use_fp16: bool = True,
         **_kwargs,
     ):
         try:
@@ -128,6 +159,7 @@ class TransformersTextEncoder(TextEncoder):
             from transformers import AutoModel, AutoTokenizer
         except ImportError as exc:
             raise ImportError("Install `vibiomir-lab[transformers]` for HF indexing") from exc
+        apply_gpu_memory_limit()
         self.torch = torch
         self.auto_model = AutoModel
         self.auto_tokenizer = AutoTokenizer
@@ -148,6 +180,7 @@ class TransformersTextEncoder(TextEncoder):
         self.revision = revision
         self.document_revision = document_revision or revision
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.use_fp16 = use_fp16
         self._query_tower: tuple[Any, Any] | None = None
         self._document_tower: tuple[Any, Any] | None = None
 
@@ -163,6 +196,8 @@ class TransformersTextEncoder(TextEncoder):
         model = self.auto_model.from_pretrained(
             name, trust_remote_code=self.trust_remote_code, revision=revision
         )
+        if self.use_fp16 and str(self.device).startswith("cuda"):
+            model.half()
         model.to(self.device)
         model.eval()
         return tokenizer, model
@@ -219,7 +254,7 @@ class TransformersTextEncoder(TextEncoder):
             encoded = self._tokenize(
                 tokenizer, values, max_length, self.document_as_pair and not query
             )
-            with self.torch.no_grad():
+            with self.torch.inference_mode():
                 hidden = model(**encoded).last_hidden_state
             mask = encoded["attention_mask"]
             if self.pooling == "cls":
@@ -266,6 +301,7 @@ class BGEM3DenseTextEncoder(TextEncoder):
             from FlagEmbedding import BGEM3FlagModel
         except ImportError as exc:
             raise ImportError("Install `vibiomir-lab[bge]` for BGE-M3 indexing") from exc
+        apply_gpu_memory_limit()
         self.model = BGEM3FlagModel(resolve_hf_model(model_name, revision), use_fp16=use_fp16)
         self.batch_size = batch_size
         self.max_length = max_length

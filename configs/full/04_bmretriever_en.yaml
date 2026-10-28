@@ -13,11 +13,11 @@ document_retrievers: []
 chunk_retrievers:
   - type: qdrant
     name: bmretriever_410m
-    collection_name: bmretriever_410m_en_chunks
+    collection_name: 04_bmretriever_en_13d60924_chunks
     state_dir: artifacts/full/04_bmretriever_en/qdrant_state
     distance: dot
     on_disk: true
-    store_text_payload: true
+    store_text_payload: false
     languages: [en]
     variant_ids: [translate_en]
     k: 1000
@@ -34,7 +34,8 @@ chunk_retrievers:
       query_max_length: 512
       document_max_length: 512
       normalize: false
-      batch_size: 32
+      batch_size: 4
+      use_fp16: true
 
 reranker:
   type: none

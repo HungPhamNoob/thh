@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from vibiomir.gpu import apply_gpu_memory_limit
 from vibiomir.models import resolve_hf_model
 
 from .store import ArtifactStore
@@ -34,6 +35,7 @@ class SpladeSparseEncoder(SparseTextEncoder):
             from transformers import AutoModelForMaskedLM, AutoTokenizer
         except ImportError as exc:
             raise ImportError("Install `vibiomir-lab[transformers]` for SPLADE") from exc
+        apply_gpu_memory_limit()
         self.torch = torch
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision)
         self.model = AutoModelForMaskedLM.from_pretrained(model_name, revision=revision)
@@ -57,7 +59,7 @@ class SpladeSparseEncoder(SparseTextEncoder):
                 return_tensors="pt",
             )
             encoded = {key: value.to(target) for key, value in encoded.items()}
-            with self.torch.no_grad():
+            with self.torch.inference_mode():
                 logits = self.model(**encoded).logits
                 weights = self.torch.log1p(self.torch.relu(logits))
                 weights *= encoded["attention_mask"].unsqueeze(-1)
@@ -93,6 +95,7 @@ class BGEM3SparseEncoder(SparseTextEncoder):
             from FlagEmbedding import BGEM3FlagModel
         except ImportError as exc:
             raise ImportError("Install `vibiomir-lab[bge]` for BGE-M3 sparse indexing") from exc
+        apply_gpu_memory_limit()
         self.model = BGEM3FlagModel(resolve_hf_model(model_name, revision), use_fp16=use_fp16)
         self.batch_size = batch_size
         self.max_length = max_length

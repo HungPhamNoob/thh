@@ -8,6 +8,7 @@ from .dataset import (
 from .submission import (
     load_submission,
     validate_submission,
+    validate_submission_zip,
     write_submission,
     write_submission_zip,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "load_queries",
     "load_submission",
     "validate_submission",
+    "validate_submission_zip",
     "write_chunks_jsonl",
     "write_documents_jsonl",
     "write_submission",

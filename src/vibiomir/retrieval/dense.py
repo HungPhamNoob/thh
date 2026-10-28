@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from vibiomir.gpu import apply_gpu_memory_limit
 from vibiomir.schemas import SearchItem, SearchResult
 
 from .base import Retriever
@@ -32,6 +33,7 @@ class SentenceTransformerRetriever(Retriever):
                 from sentence_transformers import SentenceTransformer
             except ImportError as exc:
                 raise ImportError("Install `vibiomir-lab[dense]` for dense retrieval") from exc
+            apply_gpu_memory_limit()
             self._model = SentenceTransformer(
                 self.model_name,
                 device=self.device,
@@ -97,6 +99,7 @@ class AsymmetricSentenceTransformerRetriever(SentenceTransformerRetriever):
                 from sentence_transformers import SentenceTransformer
             except ImportError as exc:
                 raise ImportError("Install `vibiomir-lab[dense]` for dense retrieval") from exc
+            apply_gpu_memory_limit()
             self._document_model = SentenceTransformer(
                 self.document_model_name,
                 device=self.device,

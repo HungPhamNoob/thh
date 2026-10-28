@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 import uuid
 from collections.abc import Iterable, Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +16,8 @@ from vibiomir.schemas import SearchItem
 
 from .encoders import build_text_encoder
 from .store import ArtifactStore
+
+log = logging.getLogger(__name__)
 
 
 def qdrant_point_id(collection_name: str, item_id: str) -> str:
@@ -109,12 +114,15 @@ def _payloads(
     store_text_payload: bool,
 ) -> Iterator[dict[str, Any]]:
     chunks = store.get_chunks(item.id for item in items) if stage == "chunk" else {}
+    corpus_revision = str(store.metadata().get("corpus_revision", "unknown"))
     for item in items:
         payload: dict[str, Any] = {
             "item_id": item.id,
+            "store_key": item.id,
             "doc_id": item.doc_id,
             "stage": stage,
             "kind": item.kind,
+            "corpus_revision": corpus_revision,
             **item.payload,
         }
         if store_text_payload:
@@ -141,7 +149,100 @@ def _upsert_batch(
         )
         for item, vector, payload in zip(items, vectors, payloads)
     ]
-    client.upsert(collection_name=collection_name, points=points, wait=True)
+    _retry(
+        lambda: client.upsert(collection_name=collection_name, points=points, wait=True),
+        operation=f"upsert {len(points)} points into {collection_name}",
+    )
+
+
+def _retry(fn, *, operation: str, attempts: int = 5, base_delay: float = 1.0):
+    """Retry transient Qdrant operations with bounded exponential backoff."""
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001 - client exposes multiple transport errors
+            last_error = exc
+            if attempt == attempts:
+                break
+            delay = min(15.0, base_delay * (2 ** (attempt - 1)))
+            log.warning(
+                "Qdrant %s failed (%d/%d); retrying in %.1fs: %s",
+                operation,
+                attempt,
+                attempts,
+                delay,
+                type(exc).__name__,
+            )
+            time.sleep(delay)
+    assert last_error is not None
+    raise last_error
+
+
+def _verify_qdrant_index(
+    client,
+    collection: str,
+    *,
+    total: int,
+    dimension: int,
+    store: ArtifactStore,
+    stage: str,
+) -> dict[str, Any]:
+    """Check count, payload provenance and an actual vector search."""
+    indexed = int(
+        _retry(
+            lambda: client.count(collection_name=collection, exact=True).count,
+            operation=f"count {collection}",
+        )
+    )
+    if indexed != total:
+        raise RuntimeError(
+            f"Qdrant collection {collection!r} has {indexed} points, expected {total}; "
+            "build a new versioned collection instead of deleting this one automatically"
+        )
+    points, _ = _retry(
+        lambda: client.scroll(
+            collection_name=collection,
+            limit=1,
+            with_payload=True,
+            with_vectors=True,
+        ),
+        operation=f"read sample payload from {collection}",
+    )
+    if not points:
+        raise RuntimeError(f"Qdrant collection {collection!r} has no sample point")
+    point = points[0]
+    payload = dict(point.payload or {})
+    item_id = str(payload.get("item_id", ""))
+    item = store.get_items(stage, [item_id]).get(item_id)
+    if item is None or str(payload.get("doc_id")) != item.doc_id:
+        raise RuntimeError(f"Qdrant sample payload does not resolve in store: {item_id!r}")
+    expected_revision = str(store.metadata().get("corpus_revision", "unknown"))
+    if payload.get("corpus_revision") != expected_revision:
+        raise RuntimeError("Qdrant sample payload has the wrong corpus revision")
+    vector = point.vector
+    if isinstance(vector, dict):
+        raise RuntimeError("Qdrant verification requires one unnamed vector")
+    if vector is None or len(vector) != dimension:
+        raise RuntimeError("Qdrant sample vector has the wrong dimension")
+    response = _retry(
+        lambda: client.query_points(
+            collection_name=collection,
+            query=vector,
+            limit=1,
+            with_payload=True,
+        ),
+        operation=f"sample search in {collection}",
+    )
+    if not response.points or not str((response.points[0].payload or {}).get("item_id", "")):
+        raise RuntimeError("Qdrant sample search did not return a store item id")
+    return {
+        "collection_exists": True,
+        "point_count": indexed,
+        "sample_item_id": item_id,
+        "sample_search_item_id": str(response.points[0].payload["item_id"]),
+        "payload_provenance": True,
+    }
 
 
 def build_qdrant_index(
@@ -184,13 +285,20 @@ def build_qdrant_index(
             total = store.count(stage, language_list)
             if total == 0:
                 raise ValueError(f"No {stage} items in {store_path}")
+            store_metadata = store.metadata()
             expected = {
-                "format_version": 1,
+                "format_version": 2,
                 "backend": "qdrant",
+                "method": store_metadata.get("method", "unknown"),
                 "stage": stage,
                 "items": total,
                 "collection_name": collection,
                 "encoder": encoder_config,
+                "model": encoder_config.get("model_name", encoder_config.get("type")),
+                "model_revision": encoder_config.get("revision"),
+                "corpus_revision": store_metadata.get("corpus_revision", "unknown"),
+                "chunker_config": store_metadata.get("chunker_config", {}),
+                "code_commit": store_metadata.get("code_commit", "unknown"),
                 "languages": language_list,
                 "distance": distance,
                 "on_disk": on_disk,
@@ -211,6 +319,14 @@ def build_qdrant_index(
                 ensure_collection(
                     client, collection, dimension, distance=distance, on_disk=on_disk
                 )
+                remote_count = int(client.count(collection_name=collection, exact=True).count)
+                if remote_count < offset:
+                    log.warning(
+                        "Qdrant has %d points but local resume offset is %d; replaying from zero",
+                        remote_count,
+                        offset,
+                    )
+                    offset = 0
 
             seen = 0
             for items in store.iter_items(stage, batch_size=batch_size, languages=language_list):
@@ -250,14 +366,22 @@ def build_qdrant_index(
             if offset != total:
                 raise RuntimeError(f"Encoded {offset} items but store reported {total}")
 
-        indexed = int(client.count(collection_name=collection, exact=True).count)
-        if indexed != total:
-            raise RuntimeError(
-                f"Qdrant collection {collection!r} has {indexed} points, expected {total}; "
-                "rerun with --recreate to remove stale points"
+            verification = _verify_qdrant_index(
+                client,
+                collection,
+                total=total,
+                dimension=dimension,
+                store=store,
+                stage=stage,
             )
 
-        manifest = {**expected, "dimension": dimension}
+        manifest = {
+            **expected,
+            "dimension": dimension,
+            "vector_size": dimension,
+            "build_timestamp": datetime.now(timezone.utc).isoformat(),
+            "verification": verification,
+        }
         _write_json(manifest_path, manifest)
         state_path.unlink(missing_ok=True)
         return manifest

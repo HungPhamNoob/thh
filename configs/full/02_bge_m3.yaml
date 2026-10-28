@@ -6,11 +6,11 @@ document_retrievers: []
 chunk_retrievers:
   - type: qdrant
     name: bge_m3_dense
-    collection_name: bge_m3_dense_chunks
+    collection_name: 02_bge_m3_13d60924_dense_chunks
     state_dir: artifacts/full/02_bge_m3/qdrant_state
     distance: cosine
     on_disk: true
-    store_text_payload: true
+    store_text_payload: false
     k: 900
     weight: 1.0
     encoder:
@@ -18,7 +18,7 @@ chunk_retrievers:
       model_name: BAAI/bge-m3
       revision: be9f7f99731dba86ab44550821489908ef3b4baa
       max_length: 1024
-      batch_size: 16
+      batch_size: 2
       use_fp16: true
   - type: lucene_impact
     name: bge_m3_sparse
@@ -30,7 +30,7 @@ chunk_retrievers:
       model_name: BAAI/bge-m3
       revision: be9f7f99731dba86ab44550821489908ef3b4baa
       max_length: 1024
-      batch_size: 16
+      batch_size: 2
       quantization_factor: 100
 
 reranker:
@@ -41,7 +41,7 @@ reranker:
   score_key: colbert+sparse+dense
   max_query_length: 512
   max_passage_length: 1024
-  batch_size: 8
+  batch_size: 2
   candidate_k: 250
   output_k: 180
 

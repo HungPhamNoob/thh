@@ -13,11 +13,11 @@ document_retrievers: []
 chunk_retrievers:
   - type: qdrant
     name: late_chunking
-    collection_name: late_chunking_en_chunks
+    collection_name: 08_late_chunking_en_13d60924_chunks
     state_dir: artifacts/full/08_late_chunking_en/qdrant_state
     distance: cosine
     on_disk: true
-    store_text_payload: true
+    store_text_payload: false
     languages: [en]
     variant_ids: [translate_en]
     k: 1000
@@ -31,12 +31,15 @@ chunk_retrievers:
       document_max_length: 512
       normalize: true
       trust_remote_code: true
-      batch_size: 32
+      batch_size: 8
+      use_fp16: true
     indexing:
       type: late_chunking
       model_name: jinaai/jina-embeddings-v2-small-en
       revision: 44e7d1d6caec8c883c2d4b207588504d519788d0
-      max_length: 8192
+      # Windowed late chunking keeps the method intact while bounding activations.
+      max_length: 4096
+      overlap_tokens: 512
       trust_remote_code: true
 
 reranker:

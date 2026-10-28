@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
+from vibiomir.gpu import apply_gpu_memory_limit, is_cuda_oom, record_cuda_oom
 from vibiomir.schemas import SearchItem, SearchResult
 
 from .base import Reranker
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -20,6 +24,7 @@ class HFSequenceClassificationReranker(Reranker):
     trust_remote_code: bool = False
     revision: str | None = None
     blend_retrieval: float = 0.0
+    use_fp16: bool = True
     _model: object | None = field(default=None, init=False, repr=False)
     _tokenizer: object | None = field(default=None, init=False, repr=False)
 
@@ -30,6 +35,7 @@ class HFSequenceClassificationReranker(Reranker):
                 from transformers import AutoModelForSequenceClassification, AutoTokenizer
             except ImportError as exc:
                 raise ImportError("Install `vibiomir-lab[transformers]` for HF reranking") from exc
+            apply_gpu_memory_limit()
             self._tokenizer = AutoTokenizer.from_pretrained(
                 self.model_name,
                 trust_remote_code=self.trust_remote_code,
@@ -41,6 +47,8 @@ class HFSequenceClassificationReranker(Reranker):
                 revision=self.revision,
             )
             target = self.device or ("cuda" if torch.cuda.is_available() else "cpu")
+            if self.use_fp16 and str(target).startswith("cuda"):
+                self._model.half()
             self._model.to(target)
             self._model.eval()
         return self._tokenizer, self._model
@@ -51,8 +59,10 @@ class HFSequenceClassificationReranker(Reranker):
         tokenizer, model = self._load()
         target = next(model.parameters()).device
         output: list[float] = []
-        for start in range(0, len(pairs), self.batch_size):
-            batch = pairs[start : start + self.batch_size]
+        start = 0
+        batch_size = self.batch_size
+        while start < len(pairs):
+            batch = pairs[start : start + batch_size]
             encoded = tokenizer(
                 [query for query, _document in batch],
                 [document for _query, document in batch],
@@ -61,9 +71,19 @@ class HFSequenceClassificationReranker(Reranker):
                 max_length=self.max_length,
                 return_tensors="pt",
             )
-            encoded = {key: value.to(target) for key, value in encoded.items()}
-            with torch.no_grad():
-                logits = model(**encoded, return_dict=True).logits.float()
+            try:
+                encoded = {key: value.to(target) for key, value in encoded.items()}
+                with torch.inference_mode():
+                    logits = model(**encoded, return_dict=True).logits.float()
+            except RuntimeError as exc:
+                if not is_cuda_oom(exc):
+                    raise
+                record_cuda_oom()
+                if batch_size > 1:
+                    batch_size = max(1, batch_size // 2)
+                    log.warning("CUDA OOM in reranker; retrying with batch_size=%d", batch_size)
+                    continue
+                raise RuntimeError("UNSUPPORTED_4GB_VRAM: reranker OOM at batch_size=1") from exc
             if logits.ndim == 1:
                 values = logits
             elif logits.shape[1] == 1:
@@ -76,6 +96,8 @@ class HFSequenceClassificationReranker(Reranker):
                     else logits[:, index]
                 )
             output.extend(float(value) for value in values.cpu())
+            start += len(batch)
+        self.batch_size = batch_size
         return output
 
     def rerank(

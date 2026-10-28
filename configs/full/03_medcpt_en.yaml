@@ -13,11 +13,11 @@ document_retrievers: []
 chunk_retrievers:
   - type: qdrant
     name: medcpt
-    collection_name: medcpt_en_chunks
+    collection_name: 03_medcpt_en_13d60924_chunks
     state_dir: artifacts/full/03_medcpt_en/qdrant_state
     distance: dot
     on_disk: true
-    store_text_payload: true
+    store_text_payload: false
     languages: [en]
     variant_ids: [translate_en]
     k: 1000
@@ -33,7 +33,8 @@ chunk_retrievers:
       document_max_length: 512
       document_as_pair: true
       normalize: false
-      batch_size: 64
+      batch_size: 16
+      use_fp16: true
 
 reranker:
   type: hf_sequence_classifier
@@ -41,7 +42,8 @@ reranker:
   model_name: ncbi/MedCPT-Cross-Encoder
   revision: 71caf65d4927987813984f54c284405a13fcca49
   max_length: 512
-  batch_size: 32
+  batch_size: 8
+  use_fp16: true
   candidate_k: 250
   output_k: 180
 

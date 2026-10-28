@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import sqlite3
@@ -45,6 +46,20 @@ class ArtifactStore:
             ).fetchone()[0]
         )
 
+    def metadata(self) -> dict[str, object]:
+        """Return reproducibility metadata embedded in the SQLite source of truth."""
+        try:
+            rows = self.connection.execute("SELECT key, value FROM store_metadata").fetchall()
+        except sqlite3.OperationalError:
+            return {}
+        output: dict[str, object] = {}
+        for row in rows:
+            try:
+                output[str(row["key"])] = json.loads(row["value"])
+            except json.JSONDecodeError:
+                output[str(row["key"])] = row["value"]
+        return output
+
     def get_documents(self, ids: Iterable[str]) -> dict[str, Document]:
         """Load only requested source documents for submission provenance checks."""
         wanted = list(dict.fromkeys(str(value) for value in ids))
@@ -78,7 +93,7 @@ class ArtifactStore:
         _table(stage)
         where, parameters = _language_filter(list(languages or []))
         if stage == "document":
-            sql = f"SELECT id, title, text, language FROM documents{where} ORDER BY id"
+            sql = f"SELECT id, title, text, language, url FROM documents{where} ORDER BY id"
         else:
             sql = (
                 "SELECT id, doc_id, index_text, chunk_order, start_char, end_char, language "
@@ -93,7 +108,11 @@ class ArtifactStore:
                         text=(f"{row['title']}\n{row['text']}" if row["title"] else row["text"]),
                         doc_id=row["id"],
                         kind="document",
-                        payload={"doc_id": row["id"], "language": row["language"]},
+                        payload={
+                            "doc_id": row["id"],
+                            "language": row["language"],
+                            "source_url": row["url"],
+                        },
                     )
                     for row in rows
                 ]
@@ -107,6 +126,8 @@ class ArtifactStore:
                         payload={
                             "doc_id": row["doc_id"],
                             "order": row["chunk_order"],
+                            "chunk_id": row["id"],
+                            "chunk_order": row["chunk_order"],
                             "start_char": row["start_char"],
                             "end_char": row["end_char"],
                             "language": row["language"],
@@ -124,7 +145,7 @@ class ArtifactStore:
             placeholders = ",".join("?" for _ in part)
             if stage == "document":
                 sql = (
-                    f"SELECT id, title, text, language FROM {table} "
+                    f"SELECT id, title, text, language, url FROM {table} "
                     f"WHERE id IN ({placeholders})"
                 )
             else:
@@ -139,7 +160,11 @@ class ArtifactStore:
                         text=(f"{row['title']}\n{row['text']}" if row["title"] else row["text"]),
                         doc_id=row["id"],
                         kind="document",
-                        payload={"doc_id": row["id"], "language": row["language"]},
+                        payload={
+                            "doc_id": row["id"],
+                            "language": row["language"],
+                            "source_url": row["url"],
+                        },
                     )
                 else:
                     item = SearchItem(
@@ -150,6 +175,8 @@ class ArtifactStore:
                         payload={
                             "doc_id": row["doc_id"],
                             "order": row["chunk_order"],
+                            "chunk_id": row["id"],
+                            "chunk_order": row["chunk_order"],
                             "start_char": row["start_char"],
                             "end_char": row["end_char"],
                             "language": row["language"],
@@ -192,6 +219,8 @@ class ArtifactStore:
                     payload={
                         "doc_id": row["doc_id"],
                         "order": row["chunk_order"],
+                        "chunk_id": row["id"],
+                        "chunk_order": row["chunk_order"],
                         "start_char": row["start_char"],
                         "end_char": row["end_char"],
                         "language": row["language"],
@@ -234,7 +263,12 @@ class ArtifactStore:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         count = 0
-        with path.open("w", encoding="utf-8") as handle:
+        handle = (
+            gzip.open(path, "wt", encoding="utf-8", compresslevel=6)
+            if path.suffix == ".gz"
+            else path.open("w", encoding="utf-8")
+        )
+        with handle:
             for batch in self.iter_items(stage, languages=languages):
                 for item in batch:
                     handle.write(
@@ -287,7 +321,11 @@ def _language_filter(languages: list[str]) -> tuple[str, list[str]]:
 
 
 def prepare_store(
-    documents: Iterable[Document], chunker, path: str | Path, commit_every: int = 1000
+    documents: Iterable[Document],
+    chunker,
+    path: str | Path,
+    commit_every: int = 1000,
+    store_metadata: dict[str, object] | None = None,
 ) -> tuple[int, int]:
     """Create a new store atomically from a streaming document iterator."""
     path = Path(path)
@@ -311,7 +349,22 @@ def prepare_store(
             language TEXT NOT NULL, metadata TEXT NOT NULL
         );
         CREATE INDEX chunks_doc_id ON chunks(doc_id);
+        CREATE TABLE store_metadata (
+            key TEXT PRIMARY KEY, value TEXT NOT NULL
+        );
+        CREATE VIEW chunk_provenance AS
+        SELECT c.doc_id, c.id AS chunk_id, c.chunk_order, c.text, c.index_text,
+               c.start_char, c.end_char, c.language, d.url AS source_url
+        FROM chunks c JOIN documents d ON d.id = c.doc_id;
         """
+    )
+    metadata = {"store_format_version": 2, **(store_metadata or {})}
+    connection.executemany(
+        "INSERT INTO store_metadata(key, value) VALUES (?, ?)",
+        [
+            (str(key), json.dumps(value, ensure_ascii=False, default=str))
+            for key, value in sorted(metadata.items())
+        ],
     )
     document_count = chunk_count = 0
     try:
@@ -328,6 +381,11 @@ def prepare_store(
                 ),
             )
             chunks = chunker.split(document)
+            for chunk in chunks:
+                if chunk.doc_id != document.id:
+                    raise ValueError(f"Chunk {chunk.id} has wrong doc_id {chunk.doc_id}")
+                if chunk.text != document.text[chunk.start_char : chunk.end_char]:
+                    raise ValueError(f"Chunk {chunk.id} is not an exact source substring")
             connection.executemany(
                 "INSERT INTO chunks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [

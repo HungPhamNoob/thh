@@ -5,11 +5,11 @@ document_retrievers: []
 chunk_retrievers:
   - type: qdrant
     name: qwen3_embedding
-    collection_name: qwen3_embedding_chunks
+    collection_name: 05_qwen3_13d60924_chunks
     state_dir: artifacts/full/05_qwen3/qdrant_state
     distance: cosine
     on_disk: true
-    store_text_payload: true
+    store_text_payload: false
     k: 1000
     weight: 1.0
     encoder:
@@ -21,16 +21,17 @@ chunk_retrievers:
       add_eos: true
       query_prefix: "Instruct: Given a Vietnamese medical question, retrieve relevant biomedical passages in Vietnamese, English, or Chinese that answer the question\nQuery:"
       query_max_length: 2048
-      document_max_length: 4096
+      document_max_length: 2048
       normalize: true
-      batch_size: 16
+      batch_size: 1
+      use_fp16: true
 
 reranker:
   type: qwen3
   model_name: Qwen/Qwen3-Reranker-0.6B
   revision: 5e6622cf95ad785d76528ca3d8341073facc54d1
   max_length: 2048
-  batch_size: 8
+  batch_size: 1
   candidate_k: 200
   output_k: 150
 

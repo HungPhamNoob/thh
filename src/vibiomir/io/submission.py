@@ -29,6 +29,34 @@ def write_submission_zip(submission: str | Path, output: str | Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.write(submission_path, arcname="submission.json")
+    errors = validate_submission_zip(output_path)
+    if errors:
+        output_path.unlink(missing_ok=True)
+        raise ValueError("Invalid submission ZIP after writing: " + "; ".join(errors))
+
+
+def validate_submission_zip(path: str | Path) -> list[str]:
+    """Validate the organizer ZIP structure and embedded JSON payload."""
+    errors: list[str] = []
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+            if names != ["submission.json"]:
+                errors.append(f"ZIP must contain only root submission.json, found {names}")
+                return errors
+            info = archive.getinfo("submission.json")
+            if info.compress_type == zipfile.ZIP_STORED:
+                errors.append("submission.json must use ZIP compression")
+            try:
+                data = json.loads(archive.read("submission.json"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                errors.append(f"submission.json is not valid UTF-8 JSON: {exc}")
+                return errors
+            if not isinstance(data, list):
+                errors.append("submission.json root must be a JSON array")
+    except (OSError, zipfile.BadZipFile, KeyError) as exc:
+        errors.append(f"invalid ZIP: {exc}")
+    return errors
 
 
 def validate_submission(

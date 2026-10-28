@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from vibiomir.gpu import apply_gpu_memory_limit
 from vibiomir.schemas import SearchItem, SearchResult
 
 from .base import Retriever
@@ -44,6 +45,7 @@ class TransformersEncoderRetriever(Retriever):
             raise ImportError(
                 "Install `vibiomir-lab[transformers]` for HF encoder retrieval"
             ) from exc
+        apply_gpu_memory_limit()
         tokenizer = AutoTokenizer.from_pretrained(
             model_name,
             trust_remote_code=self.trust_remote_code,
@@ -107,7 +109,7 @@ class TransformersEncoderRetriever(Retriever):
                 ]
                 encoded = tokenizer.pad(encoded, padding=True, return_tensors="pt")
             encoded = {key: value.to(device) for key, value in encoded.items()}
-            with torch.no_grad():
+            with torch.inference_mode():
                 hidden = model(**encoded).last_hidden_state
             mask = encoded["attention_mask"]
             if self.pooling == "cls":

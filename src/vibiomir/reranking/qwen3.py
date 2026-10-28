@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from vibiomir.gpu import apply_gpu_memory_limit
 from vibiomir.schemas import SearchItem, SearchResult
 
 from .base import Reranker
@@ -21,6 +22,7 @@ class Qwen3Reranker(Reranker):
     device: str | None = None
     blend_retrieval: float = 0.0
     revision: str | None = None
+    use_fp16: bool = True
     _model: object | None = field(default=None, init=False, repr=False)
     _tokenizer: object | None = field(default=None, init=False, repr=False)
     _prefix_tokens: list[int] = field(default_factory=list, init=False, repr=False)
@@ -37,6 +39,7 @@ class Qwen3Reranker(Reranker):
                 raise ImportError(
                     "Install `vibiomir-lab[transformers]` for Qwen3 reranking"
                 ) from exc
+            apply_gpu_memory_limit()
             self._tokenizer = AutoTokenizer.from_pretrained(
                 self.model_name, padding_side="left", revision=self.revision
             )
@@ -44,6 +47,8 @@ class Qwen3Reranker(Reranker):
                 self.model_name, revision=self.revision
             )
             target = self.device or ("cuda" if torch.cuda.is_available() else "cpu")
+            if self.use_fp16 and str(target).startswith("cuda"):
+                self._model.half()
             self._model.to(target)
             self._model.eval()
             prefix = (
@@ -80,7 +85,7 @@ class Qwen3Reranker(Reranker):
                 encoded["input_ids"][index] = self._prefix_tokens + ids + self._suffix_tokens
             encoded = tokenizer.pad(encoded, padding=True, return_tensors="pt")
             encoded = {key: value.to(target) for key, value in encoded.items()}
-            with torch.no_grad():
+            with torch.inference_mode():
                 logits = model(**encoded).logits[:, -1, :].float()
                 yes_no = torch.stack([logits[:, self._false_id], logits[:, self._true_id]], dim=1)
                 scores = torch.softmax(yes_no, dim=1)[:, 1]
