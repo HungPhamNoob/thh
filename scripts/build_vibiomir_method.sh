@@ -45,8 +45,8 @@ exec > >(tee -a "artifacts/full/${method}/build.log") 2>&1
   --hf-revision "$revision" \
   --expected-shards 13 \
   --expected-source-rows 1220598 \
-  --expected-documents 1047415 \
-  --expected-empty-rows 173183 \
+  --expected-documents 1047384 \
+  --expected-empty-rows 173214 \
   --official-vibiomir-corpus \
   --store "$store"
 

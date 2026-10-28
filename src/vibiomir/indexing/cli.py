@@ -33,8 +33,13 @@ VIBIOMIR_CORPUS_REVISION = "13d60924d53e720a7f84c78e3b08b7e17b670b5d"
 VIBIOMIR_CORPUS_PATTERN = "corpus/v1/*.parquet"
 VIBIOMIR_CORPUS_SHARDS = [f"corpus/v1/part-{index:05d}.parquet" for index in range(13)]
 VIBIOMIR_SOURCE_ROWS = 1_220_598
-VIBIOMIR_DOCUMENTS = 1_047_415
-VIBIOMIR_EMPTY_ROWS = 173_183
+# Content-based counts at the pinned revision. `corpus_info.json` reports
+# 1,047,415 non-empty / 173,183 empty because it counts by the `source` label;
+# 31 rows labelled crawl/wayback actually carry empty text, so the verifiable
+# text-content counts are 31 lower/higher. Empty text is a valid coverage row
+# and is skipped, never indexed (see docs/huggingface_corpus.md).
+VIBIOMIR_DOCUMENTS = 1_047_384
+VIBIOMIR_EMPTY_ROWS = 173_214
 
 
 def _config(args: argparse.Namespace) -> dict:

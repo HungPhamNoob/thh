@@ -16,17 +16,25 @@ Nguồn kiểm tra: [dataset tree](https://huggingface.co/datasets/vibiomir-corp
 [`corpus_info.json`](https://huggingface.co/datasets/vibiomir-corpus/vibiomir-corpus/blob/13d60924d53e720a7f84c78e3b08b7e17b670b5d/corpus_info.json)
 và [`coverage.csv`](https://huggingface.co/datasets/vibiomir-corpus/vibiomir-corpus/blob/13d60924d53e720a7f84c78e3b08b7e17b670b5d/coverage.csv).
 
-Dataset đủ 1.220.598 ID nhưng chỉ 1.047.415 dòng có text. 173.183 dòng text rỗng được bỏ khỏi
-SQLite/Qdrant vì không có nội dung để chunk hoặc embed. Runner kiểm tra đúng các số này và dừng
-ngay nếu dataset revision trả về số shard/row khác dự kiến.
+Dataset đủ 1.220.598 ID nhưng chỉ 1.047.384 dòng có text hữu ích (sau chuẩn hoá). 173.214 dòng
+text rỗng được bỏ khỏi SQLite/Qdrant vì không có nội dung để chunk hoặc embed. Runner kiểm tra
+đúng các số này và dừng ngay nếu dataset revision trả về số shard/row khác dự kiến.
+
+Lưu ý về chênh lệch 31 dòng: `corpus_info.json` của BTC công bố 1.047.415 document "có text" và
+173.183 dòng rỗng vì đếm theo nhãn `source` (khác `missing`). Khi đọc trực tiếp 13 shard của
+revision đã pin, có đúng 31 dòng mang nhãn `crawl`/`wayback` nhưng `text` và `title` rỗng — tức
+không có nội dung để index. Vì empty text là coverage row hợp lệ cần skip (không phải schema
+error), contract trong code dùng số đếm theo nội dung thực: 1.047.384 + 173.214 = 1.220.598.
+Không dùng LLM hay bất kỳ nguồn nào để bịa nội dung cho 31 dòng này cũng như 173.183 dòng
+`missing`; chúng chỉ được khôi phục qua crawl bổ sung ở corpus revision mới.
 
 ## Luồng chạy
 
 ```text
 13 Parquet shards (HF, pinned SHA)
   -> verify 1,220,598 rows
-  -> bỏ 173,183 text rỗng
-  -> 1,047,415 documents có text
+  -> bỏ 173,214 text rỗng (gồm 31 dòng nhãn crawl/wayback nhưng text rỗng)
+  -> 1,047,384 documents có text
   -> chunk nguyên văn + store.sqlite
   -> embedding -> Qdrant / Lucene / PLAID
   -> retrieve 1,200 queries

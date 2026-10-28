@@ -192,6 +192,19 @@ class ArtifactStoreTest(unittest.TestCase):
         ):
             self.assertEqual(cli.command_prepare(args), 0)
 
+    def test_official_contract_counts_are_content_consistent(self):
+        from vibiomir.indexing import cli
+
+        # corpus_info.json reports 1,047,415 non-empty / 173,183 empty by source
+        # label; 31 rows labelled crawl/wayback carry empty text at the pinned
+        # revision, so the content-based contract is exactly 31 lower/higher and
+        # must still sum to the source row count.
+        self.assertEqual(
+            cli.VIBIOMIR_DOCUMENTS + cli.VIBIOMIR_EMPTY_ROWS, cli.VIBIOMIR_SOURCE_ROWS
+        )
+        self.assertEqual(cli.VIBIOMIR_DOCUMENTS, 1_047_415 - 31)
+        self.assertEqual(cli.VIBIOMIR_EMPTY_ROWS, 173_183 + 31)
+
     @unittest.skipUnless(importlib.util.find_spec("pyarrow"), "ingest extra not installed")
     def test_missing_text_schema_fails_instead_of_treating_rows_as_empty(self):
         import pyarrow as pa
