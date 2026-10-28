@@ -71,11 +71,20 @@ bash scripts/build_method.sh 02_bge_m3 data/processed/corpus
 # ... tương tự đến 08_late_chunking_en
 ```
 
-Input có thể lấy trực tiếp từ một file parquet trong Hugging Face Dataset, có pin revision:
+Build trực tiếp toàn bộ corpus Hugging Face đã pin revision:
 
 ```bash
-bash scripts/build_method_from_hf.sh 01_mgte_dense \
-  owner/dataset corpus.parquet <dataset-commit-sha>
+bash scripts/build_vibiomir_method.sh 01_mgte_dense
+```
+
+Script tải đúng `corpus/v1/*.parquet`, kiểm tra 13 shard, 1.220.598 source rows và 1.047.415
+document có text. 173.183 dòng `source=missing` vẫn tồn tại trong dataset để bảo toàn ID nhưng
+không thể chunk/index vì không có nội dung. Chi tiết: [`huggingface_corpus.md`](huggingface_corpus.md).
+
+Với dataset khác, dùng runner tổng quát:
+
+```bash
+bash scripts/build_method_from_hf.sh METHOD DATASET_REPO REVISION 'path/*.parquet'
 ```
 
 Hoặc gọi CLI rõ từng bước:
@@ -101,13 +110,17 @@ bash scripts/run_method.sh 01_mgte_dense \
   data/raw/official/query.parquet path/to/dev_gold.json
 ```
 
+Output sẵn sàng nộp nằm tại `runs/01_mgte_dense/submission.zip`. ZIP chỉ có một file
+`submission.json` ở root. Trước khi zip, runner bắt buộc kiểm tra đủ query, ID integer, schema
+không có field lạ và `chunk_text` thuộc document trong `store.sqlite`.
+
 Khi có `gold`, lệnh ghi:
 
 - macro document precision/recall/F2 theo từng query;
 - macro chunk precision/recall/F2 với cả hai điều kiện LCS ≥ 0,4;
 - `final_score = (document_f2 + chunk_f2) / 2`;
-- `submission.json` được validate schema. Trước khi nộp thật, chạy thêm validate với corpus để
-  kiểm tra `chunk_text` là substring nguyên văn.
+- `submission.json` được validate schema, đủ query và đối chiếu `chunk_text` với document nguồn
+  trong `store.sqlite` trước khi tạo ZIP.
 
 ## 6. Smoke test
 

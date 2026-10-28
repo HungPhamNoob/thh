@@ -1,3 +1,5 @@
+import argparse
+import importlib.util
 import json
 import tempfile
 import unittest
@@ -37,6 +39,93 @@ class ArtifactStoreTest(unittest.TestCase):
             chunk = store.get_chunks([item.id])[item.id]
             self.assertEqual(chunk.text, "đau đầu kéo dài")
             self.assertEqual(chunk.text, chunk.index_text)
+
+    @unittest.skipUnless(importlib.util.find_spec("pyarrow"), "ingest extra not installed")
+    def test_prepare_accepts_multi_shard_parquet_and_checks_counts(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        from vibiomir.indexing.cli import command_prepare
+
+        corpus = self.root / "corpus"
+        corpus.mkdir()
+        pq.write_table(
+            pa.Table.from_pylist(
+                [
+                    {"id": 1, "text": "nội dung một", "language": "vi"},
+                    {"id": 2, "text": "", "language": "vi"},
+                ]
+            ),
+            corpus / "part-00000.parquet",
+        )
+        pq.write_table(
+            pa.Table.from_pylist(
+                [{"id": 3, "text": "document three", "language": "en"}]
+            ),
+            corpus / "part-00001.parquet",
+        )
+        output = self.root / "multi.sqlite"
+        args = argparse.Namespace(
+            config="configs/smoke/qdrant_hash.yaml",
+            set=[],
+            corpus=str(corpus),
+            hf_dataset=None,
+            hf_file=None,
+            hf_pattern=None,
+            hf_revision=None,
+            hf_max_workers=1,
+            expected_shards=2,
+            expected_source_rows=3,
+            expected_documents=2,
+            store=str(output),
+        )
+        self.assertEqual(command_prepare(args), 0)
+        with ArtifactStore(output) as store:
+            self.assertEqual(store.count("document"), 2)
+
+    @unittest.skipUnless(importlib.util.find_spec("pyarrow"), "ingest extra not installed")
+    def test_hf_snapshot_uses_only_matching_corpus_shards(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        from vibiomir.indexing.cli import command_prepare
+
+        snapshot = self.root / "snapshot"
+        corpus = snapshot / "corpus" / "v1"
+        corpus.mkdir(parents=True)
+        pq.write_table(
+            pa.Table.from_pylist([{"id": 1, "text": "one", "language": "en"}]),
+            corpus / "part-00000.parquet",
+        )
+        pq.write_table(
+            pa.Table.from_pylist([{"id": 2, "text": "two", "language": "en"}]),
+            corpus / "part-00001.parquet",
+        )
+        # This file may already exist in the shared HF snapshot cache.  It must
+        # not leak into the explicitly selected corpus/v1 pattern.
+        pq.write_table(
+            pa.Table.from_pylist([{"id": 999, "url": "https://example.org"}]),
+            snapshot / "manifest.parquet",
+        )
+        output = self.root / "hf.sqlite"
+        args = argparse.Namespace(
+            config="configs/smoke/qdrant_hash.yaml",
+            set=[],
+            corpus=None,
+            hf_dataset="owner/dataset",
+            hf_file=None,
+            hf_pattern=["corpus/v1/*.parquet"],
+            hf_revision="deadbeef",
+            hf_max_workers=1,
+            expected_shards=2,
+            expected_source_rows=2,
+            expected_documents=2,
+            store=str(output),
+        )
+        with patch("huggingface_hub.snapshot_download", return_value=str(snapshot)):
+            self.assertEqual(command_prepare(args), 0)
+        with ArtifactStore(output) as store:
+            self.assertEqual(store.count("document"), 2)
 
     def test_persistent_numpy_index_searches_without_loading_corpus(self):
         index_dir = self.root / "index"

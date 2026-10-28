@@ -10,6 +10,7 @@ from vibiomir.chunking import build_chunker
 from vibiomir.config import apply_overrides, load_config
 from vibiomir.evaluation import evaluate_submission
 from vibiomir.indexing.cli import add_index_parsers
+from vibiomir.indexing.store import ArtifactStore
 from vibiomir.ingest.cli import add_ingest_parser
 from vibiomir.io import (
     load_documents,
@@ -18,6 +19,7 @@ from vibiomir.io import (
     validate_submission,
     write_chunks_jsonl,
     write_submission,
+    write_submission_zip,
 )
 from vibiomir.pipeline import SearchPipeline
 
@@ -63,8 +65,16 @@ def command_evaluate(args: argparse.Namespace) -> int:
 
 
 def command_validate(args: argparse.Namespace) -> int:
-    documents = load_documents(args.corpus) if args.corpus else None
-    errors = validate_submission(load_submission(args.submission), documents)
+    rows = load_submission(args.submission)
+    documents = _validation_documents(args.corpus, args.store, rows)
+    expected = {query.id for query in load_queries(args.queries)} if args.queries else None
+    errors = validate_submission(
+        rows,
+        documents,
+        expected_query_ids=expected,
+        require_numeric_ids=args.official,
+        strict_fields=args.official,
+    )
     if errors:
         print("Submission validation failed:")
         for error in errors:
@@ -72,6 +82,52 @@ def command_validate(args: argparse.Namespace) -> int:
         return 1
     print("Submission is valid")
     return 0
+
+
+def command_package(args: argparse.Namespace) -> int:
+    rows = load_submission(args.submission)
+    queries = load_queries(args.queries)
+    documents = _validation_documents(args.corpus, args.store, rows)
+    errors = validate_submission(
+        rows,
+        documents,
+        expected_query_ids={query.id for query in queries},
+        require_numeric_ids=True,
+        strict_fields=True,
+    )
+    if errors:
+        print("Submission packaging failed:")
+        for error in errors:
+            print(f"- {error}")
+        return 1
+    write_submission_zip(args.submission, args.output)
+    print(f"Wrote organizer-ready ZIP to {args.output}")
+    return 0
+
+
+def _validation_documents(corpus: str | None, store: str | None, rows: list[dict]):
+    if corpus:
+        return load_documents(corpus)
+    if not store:
+        return None
+    doc_ids = {
+        str(doc_id)
+        for row in rows
+        if isinstance(row, dict)
+        for doc_id in (
+            row.get("relevant_docs", [])
+            if isinstance(row.get("relevant_docs", []), list)
+            else []
+        )
+    } | {
+        str(chunk["doc_id"])
+        for row in rows
+        if isinstance(row, dict)
+        for chunk in row.get("relevant_chunks", [])
+        if isinstance(chunk, dict) and "doc_id" in chunk
+    }
+    with ArtifactStore(store) as artifact_store:
+        return artifact_store.get_documents(doc_ids).values()
 
 
 def command_show_config(args: argparse.Namespace) -> int:
@@ -112,8 +168,23 @@ def build_parser() -> argparse.ArgumentParser:
         "validate", help="Validate submission schema and text provenance"
     )
     validate_parser.add_argument("--submission", required=True)
-    validate_parser.add_argument("--corpus")
+    validation_source = validate_parser.add_mutually_exclusive_group()
+    validation_source.add_argument("--corpus")
+    validation_source.add_argument("--store", help="SQLite store; loads only cited documents")
+    validate_parser.add_argument("--queries", help="require exactly these query ids")
+    validate_parser.add_argument("--official", action="store_true", help="enforce BTC id/schema")
     validate_parser.set_defaults(handler=command_validate)
+
+    package_parser = subparsers.add_parser(
+        "package", help="Validate and create the organizer-ready submission ZIP"
+    )
+    package_parser.add_argument("--submission", required=True)
+    package_parser.add_argument("--queries", required=True)
+    package_source = package_parser.add_mutually_exclusive_group()
+    package_source.add_argument("--corpus", help="optional exact-text provenance check")
+    package_source.add_argument("--store", help="SQLite store; loads only cited documents")
+    package_parser.add_argument("--output", required=True)
+    package_parser.set_defaults(handler=command_package)
 
     show_parser = subparsers.add_parser(
         "show-config", help="Render inherited config plus overrides"

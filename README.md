@@ -141,10 +141,17 @@ E-utilities; trang chết/bị chặn đi qua Wayback nếu có bản lưu. Xem 
 Để build một pipeline đầy đủ trên 1,2M documents/chunks:
 
 ```bash
-bash scripts/build_method.sh 00_bm25_lucene data/processed/corpus
-bash scripts/run_method.sh 00_bm25_lucene \
+bash scripts/build_vibiomir_method.sh 01_mgte_dense
+bash scripts/run_method.sh 01_mgte_dense \
   data/raw/official/query.parquet path/to/dev_gold.json
 ```
+
+`build_vibiomir_method.sh` đã pin dataset
+[`vibiomir-corpus/vibiomir-corpus`](https://huggingface.co/datasets/vibiomir-corpus/vibiomir-corpus)
+ở commit `13d60924d53e720a7f84c78e3b08b7e17b670b5d`, tải đủ 13 shard, xác minh
+1.220.598 source rows và chỉ index 1.047.415 tài liệu có text. `run_method.sh` tạo đồng thời
+`submission.json`, metrics nếu có gold, và `submission.zip` đúng định dạng BTC. Xem
+[`docs/huggingface_corpus.md`](docs/huggingface_corpus.md).
 
 `store.sqlite` giữ chunk gốc để dựng submission và kiểm tra substring. Các vector dense cùng
 payload id/offset/chunk được đẩy vào Qdrant; Lucene/PLAID vẫn dùng cho BM25, learned sparse và

@@ -1,6 +1,10 @@
+import json
+import tempfile
 import unittest
+import zipfile
+from pathlib import Path
 
-from vibiomir.io.submission import validate_submission
+from vibiomir.io.submission import validate_submission, write_submission_zip
 from vibiomir.schemas import Chunk, Document, Prediction
 
 
@@ -36,6 +40,28 @@ class SubmissionTest(unittest.TestCase):
         ]
         errors = validate_submission(rows, [Document(id="d1", text="exact source text")])
         self.assertTrue(any("exact source substring" in error for error in errors))
+
+    def test_official_validation_requires_all_queries_and_numeric_ids(self):
+        rows = [{"id": "1", "relevant_docs": [], "relevant_chunks": []}]
+        errors = validate_submission(
+            rows,
+            expected_query_ids={"1", "2"},
+            require_numeric_ids=True,
+            strict_fields=True,
+        )
+        self.assertTrue(any("expected integer" in error for error in errors))
+        self.assertTrue(any("missing query ids" in error for error in errors))
+
+    def test_submission_zip_has_one_root_level_json(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            submission = root / "predictions.json"
+            submission.write_text(json.dumps([]), encoding="utf-8")
+            output = root / "submission.zip"
+            write_submission_zip(submission, output)
+            with zipfile.ZipFile(output) as archive:
+                self.assertEqual(archive.namelist(), ["submission.json"])
+                self.assertEqual(json.loads(archive.read("submission.json")), [])
 
 
 if __name__ == "__main__":

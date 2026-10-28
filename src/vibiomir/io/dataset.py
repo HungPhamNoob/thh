@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 
 from vibiomir.schemas import Chunk, Document, Query
@@ -18,16 +18,24 @@ def _jsonl(path: str | Path) -> Iterator[dict]:
                 raise ValueError(f"Invalid JSON at {path}:{line_number}") from exc
 
 
-def _parquet_rows(path: str | Path) -> Iterator[dict]:
+CorpusPath = str | Path | Sequence[str | Path]
+
+
+def _parquet_rows(path: CorpusPath) -> Iterator[dict]:
     try:
         import pyarrow.dataset as ds
     except ImportError as exc:  # pragma: no cover - optional dependency
         raise ImportError("Install `vibiomir-lab[ingest]` to read parquet input") from exc
-    dataset = ds.dataset(str(path), format="parquet", exclude_invalid_files=True)
+    source = [str(value) for value in path] if isinstance(path, Sequence) and not isinstance(path, (str, bytes, Path)) else str(path)
+    dataset = ds.dataset(source, format="parquet", exclude_invalid_files=True)
     yield from dataset.to_batches(batch_size=4096)
 
 
-def _rows(path: str | Path) -> Iterator[dict]:
+def _rows(path: CorpusPath) -> Iterator[dict]:
+    if isinstance(path, Sequence) and not isinstance(path, (str, bytes, Path)):
+        for batch in _parquet_rows(path):
+            yield from batch.to_pylist()
+        return
     path = Path(path)
     if path.suffix == ".parquet" or path.is_dir():
         for batch in _parquet_rows(path):
@@ -36,9 +44,13 @@ def _rows(path: str | Path) -> Iterator[dict]:
     yield from _jsonl(path)
 
 
-def iter_documents(path: str | Path) -> Iterator[Document]:
+def iter_documents(path: CorpusPath) -> Iterator[Document]:
     for row in _rows(path):
-        text = row.get("text") or row.get("contents") or row.get("content")
+        text = row.get("text")
+        if text is None:
+            text = row.get("contents")
+        if text is None:
+            text = row.get("content")
         if text is None:
             raise ValueError(f"Document {row.get('id')} has no text/content field")
         if not str(text).strip():

@@ -7,7 +7,14 @@ from pathlib import Path
 from vibiomir.chunking import build_chunker
 from vibiomir.config import apply_overrides, load_config
 from vibiomir.evaluation import evaluate_submission
-from vibiomir.io import iter_documents, load_queries, load_submission, write_submission
+from vibiomir.io import (
+    iter_documents,
+    load_queries,
+    load_submission,
+    validate_submission,
+    write_submission,
+    write_submission_zip,
+)
 from vibiomir.pipeline import IndexedSearchPipeline
 
 from .late_chunking import build_late_chunking_qdrant_index
@@ -24,22 +31,81 @@ def _config(args: argparse.Namespace) -> dict:
 def command_prepare(args: argparse.Namespace) -> int:
     config = _config(args)
     corpus = args.corpus
+    parquet_files: list[Path] = []
     if args.hf_dataset:
-        if not args.hf_file:
-            raise ValueError("--hf-file is required with --hf-dataset")
         try:
-            from huggingface_hub import hf_hub_download
+            from huggingface_hub import hf_hub_download, snapshot_download
         except ImportError as exc:
             raise ImportError("Install `vibiomir-lab[ingest]` for Hugging Face input") from exc
-        corpus = hf_hub_download(
-            repo_id=args.hf_dataset,
-            filename=args.hf_file,
-            repo_type="dataset",
-            revision=args.hf_revision,
+        if not args.hf_revision:
+            raise ValueError("--hf-revision is required for reproducible Hugging Face input")
+        if args.hf_file:
+            corpus = hf_hub_download(
+                repo_id=args.hf_dataset,
+                filename=args.hf_file,
+                repo_type="dataset",
+                revision=args.hf_revision,
+            )
+            if str(corpus).endswith(".parquet"):
+                parquet_files = [Path(corpus)]
+        else:
+            if not args.hf_pattern:
+                raise ValueError("--hf-pattern is required when --hf-file is omitted")
+            patterns = args.hf_pattern
+            snapshot = Path(
+                snapshot_download(
+                    repo_id=args.hf_dataset,
+                    repo_type="dataset",
+                    revision=args.hf_revision,
+                    allow_patterns=patterns,
+                    max_workers=args.hf_max_workers,
+                )
+            )
+            parquet_files = sorted(
+                {
+                    path
+                    for pattern in patterns
+                    for path in snapshot.glob(pattern)
+                    if path.is_file() and path.suffix == ".parquet"
+                }
+            )
+            if not parquet_files:
+                raise ValueError(f"No parquet files matched {patterns} in {args.hf_dataset}")
+            corpus = parquet_files
+    elif Path(corpus).is_dir():
+        parquet_files = sorted(Path(corpus).rglob("*.parquet"))
+    elif str(corpus).endswith(".parquet"):
+        parquet_files = [Path(corpus)]
+    if args.expected_shards is not None:
+        actual_shards = len(parquet_files)
+        if actual_shards != args.expected_shards:
+            raise ValueError(
+                f"Expected {args.expected_shards} parquet shards, found {actual_shards}"
+            )
+    if args.expected_source_rows is not None:
+        try:
+            import pyarrow.dataset as ds
+        except ImportError as exc:
+            raise ImportError("Install `vibiomir-lab[ingest]` to verify parquet rows") from exc
+        source_rows = int(
+            ds.dataset(
+                [str(path) for path in parquet_files],
+                format="parquet",
+                exclude_invalid_files=True,
+            ).count_rows()
         )
+        if source_rows != args.expected_source_rows:
+            raise ValueError(
+                f"Expected {args.expected_source_rows} source rows, found {source_rows}"
+            )
+        print(f"Verified {source_rows} source rows across {len(parquet_files) or 1} shard(s)")
     documents, chunks = prepare_store(
         iter_documents(corpus), build_chunker(config["chunking"]), args.store
     )
+    if args.expected_documents is not None and documents != args.expected_documents:
+        raise ValueError(
+            f"Expected {args.expected_documents} non-empty documents, prepared {documents}"
+        )
     print(f"Prepared {documents} documents and {chunks} chunks in {args.store}")
     return 0
 
@@ -148,13 +214,26 @@ def command_build_impact(args: argparse.Namespace) -> int:
 
 
 def command_indexed_run(args: argparse.Namespace) -> int:
+    queries = load_queries(args.queries)
     pipeline = IndexedSearchPipeline(_config(args), args.store)
     try:
-        predictions = pipeline.run(load_queries(args.queries))
+        predictions = pipeline.run(queries)
     finally:
         pipeline.close()
     write_submission(predictions, args.output, debug=args.debug)
     print(f"Wrote {len(predictions)} predictions to {args.output}")
+    if args.zip_output:
+        rows = load_submission(args.output)
+        errors = validate_submission(
+            rows,
+            expected_query_ids={query.id for query in queries},
+            require_numeric_ids=True,
+            strict_fields=True,
+        )
+        if errors:
+            raise ValueError("Submission is not packageable:\n- " + "\n- ".join(errors))
+        write_submission_zip(args.output, args.zip_output)
+        print(f"Wrote competition ZIP to {args.zip_output}")
     if args.gold:
         metrics = evaluate_submission(load_submission(args.output), load_submission(args.gold))
         serialized = json.dumps(metrics, indent=2, ensure_ascii=False)
@@ -180,8 +259,17 @@ def add_index_parsers(subparsers) -> None:
     source = prepare.add_mutually_exclusive_group(required=True)
     source.add_argument("--corpus", help="JSONL, parquet file, or parquet directory")
     source.add_argument("--hf-dataset", help="Hugging Face dataset repository id")
-    prepare.add_argument("--hf-file", help="file in --hf-dataset, usually a parquet shard")
-    prepare.add_argument("--hf-revision", help="dataset commit/tag; pin this for real runs")
+    prepare.add_argument("--hf-file", help="one file in --hf-dataset (legacy/small runs)")
+    prepare.add_argument(
+        "--hf-pattern",
+        action="append",
+        help="snapshot pattern; repeatable, e.g. corpus/v1/*.parquet",
+    )
+    prepare.add_argument("--hf-revision", help="dataset commit SHA; required with --hf-dataset")
+    prepare.add_argument("--hf-max-workers", type=int, default=4)
+    prepare.add_argument("--expected-shards", type=int)
+    prepare.add_argument("--expected-source-rows", type=int)
+    prepare.add_argument("--expected-documents", type=int, help="non-empty documents after filter")
     prepare.add_argument("--store", required=True)
     prepare.set_defaults(handler=command_prepare)
 
@@ -238,6 +326,7 @@ def add_index_parsers(subparsers) -> None:
     run.add_argument("--store", required=True)
     run.add_argument("--queries", required=True, help="official query parquet or JSONL")
     run.add_argument("--output", required=True)
+    run.add_argument("--zip-output", help="write a root-level submission.json in this ZIP")
     run.add_argument("--gold")
     run.add_argument("--metrics-output")
     run.add_argument("--debug", action="store_true")

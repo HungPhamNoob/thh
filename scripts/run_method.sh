@@ -26,10 +26,12 @@ mkdir -p "$run_dir"
 
 command=(python -m vibiomir indexed-run
   --config "$config" --store "$store" --queries "$queries"
-  --output "$run_dir/submission.json" --metrics-output "$run_dir/metrics.json")
+  --output "$run_dir/submission.json" --zip-output "$run_dir/submission.zip"
+  --metrics-output "$run_dir/metrics.json")
 if [[ -n "$gold" ]]; then
   command+=(--gold "$gold")
 fi
 "${command[@]}"
 
-python -m vibiomir validate --submission "$run_dir/submission.json"
+python -m vibiomir validate \
+  --submission "$run_dir/submission.json" --queries "$queries" --official --store "$store"

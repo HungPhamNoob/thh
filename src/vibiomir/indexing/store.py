@@ -45,6 +45,30 @@ class ArtifactStore:
             ).fetchone()[0]
         )
 
+    def get_documents(self, ids: Iterable[str]) -> dict[str, Document]:
+        """Load only requested source documents for submission provenance checks."""
+        wanted = list(dict.fromkeys(str(value) for value in ids))
+        output: dict[str, Document] = {}
+        for start in range(0, len(wanted), 900):
+            part = wanted[start : start + 900]
+            if not part:
+                continue
+            placeholders = ",".join("?" for _ in part)
+            sql = (
+                "SELECT id, title, text, language, url FROM documents "
+                f"WHERE id IN ({placeholders})"
+            )
+            for row in self.connection.execute(sql, part):
+                document = Document(
+                    id=str(row["id"]),
+                    title=str(row["title"]),
+                    text=str(row["text"]),
+                    language=str(row["language"]),
+                    url=str(row["url"]),
+                )
+                output[document.id] = document
+        return output
+
     def iter_items(
         self,
         stage: str,

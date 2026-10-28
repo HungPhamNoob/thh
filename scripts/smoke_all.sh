@@ -39,6 +39,13 @@ python -m vibiomir index build-qdrant \
 python -m vibiomir indexed-run \
   --config "$config" --store "$store" --queries examples/queries.jsonl \
   --output "$smoke_dir/submission.json" --gold examples/gold.json \
-  --metrics-output "$smoke_dir/metrics.json"
+  --metrics-output "$smoke_dir/metrics.json" --zip-output "$smoke_dir/submission.zip"
 python -m vibiomir validate \
-  --submission "$smoke_dir/submission.json" --corpus examples/corpus.jsonl
+  --submission "$smoke_dir/submission.json" --corpus examples/corpus.jsonl \
+  --queries examples/queries.jsonl --official
+python - <<'PY'
+from zipfile import ZipFile
+
+with ZipFile("runs/smoke/submission.zip") as archive:
+    assert archive.namelist() == ["submission.json"]
+PY
