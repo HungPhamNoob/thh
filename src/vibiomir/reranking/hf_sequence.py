@@ -23,6 +23,7 @@ class HFSequenceClassificationReranker(Reranker):
     apply_softmax: bool = False
     trust_remote_code: bool = False
     revision: str | None = None
+    code_revision: str | None = None
     blend_retrieval: float = 0.0
     use_fp16: bool = True
     _model: object | None = field(default=None, init=False, repr=False)
@@ -40,11 +41,13 @@ class HFSequenceClassificationReranker(Reranker):
                 self.model_name,
                 trust_remote_code=self.trust_remote_code,
                 revision=self.revision,
+                code_revision=self.code_revision,
             )
             self._model = AutoModelForSequenceClassification.from_pretrained(
                 self.model_name,
                 trust_remote_code=self.trust_remote_code,
                 revision=self.revision,
+                code_revision=self.code_revision,
             )
             target = self.device or ("cuda" if torch.cuda.is_available() else "cpu")
             if self.use_fp16 and str(target).startswith("cuda"):

@@ -70,6 +70,7 @@ def _model_records(value: object) -> list[dict[str, object]]:
                 {
                     "model_name": value["model_name"],
                     "revision": value.get("revision"),
+                    "code_revision": value.get("code_revision"),
                     "type": value.get("type"),
                 }
             )
@@ -88,7 +89,12 @@ def _model_records(value: object) -> list[dict[str, object]]:
             records.extend(_model_records(child))
     unique: dict[tuple[object, object, object], dict[str, object]] = {}
     for record in records:
-        key = (record["model_name"], record["revision"], record["type"])
+        key = (
+            record["model_name"],
+            record["revision"],
+            record.get("code_revision"),
+            record["type"],
+        )
         unique[key] = record
     return list(unique.values())
 

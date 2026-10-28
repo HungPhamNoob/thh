@@ -63,6 +63,7 @@ class SentenceTransformerTextEncoder(TextEncoder):
         device: str | None = None,
         trust_remote_code: bool = False,
         revision: str | None = None,
+        code_revision: str | None = None,
         max_length: int | None = None,
         use_fp16: bool = True,
         **_kwargs,
@@ -77,6 +78,8 @@ class SentenceTransformerTextEncoder(TextEncoder):
             device=device,
             trust_remote_code=trust_remote_code,
             revision=revision,
+            model_kwargs={"code_revision": code_revision} if code_revision else None,
+            config_kwargs={"code_revision": code_revision} if code_revision else None,
         )
         if max_length is not None:
             self.model.max_seq_length = int(max_length)
