@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 
 from vibiomir.gpu import apply_gpu_memory_limit, is_cuda_oom, record_cuda_oom
-from vibiomir.models import resolve_hf_model
+from vibiomir.models import repair_1d_position_id_buffers, resolve_hf_model
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +86,7 @@ class SentenceTransformerTextEncoder(TextEncoder):
         target = str(self.model.device)
         if use_fp16 and target.startswith("cuda"):
             self.model.half()
+        repair_1d_position_id_buffers(self.model)
         self.batch_size = batch_size
         self.normalize = normalize
         self.query_prefix = query_prefix

@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass, field
 
 from vibiomir.gpu import apply_gpu_memory_limit, is_cuda_oom, record_cuda_oom
+from vibiomir.models import repair_1d_position_id_buffers
 from vibiomir.schemas import SearchItem, SearchResult
 
 from .base import Reranker
@@ -53,6 +54,7 @@ class HFSequenceClassificationReranker(Reranker):
             if self.use_fp16 and str(target).startswith("cuda"):
                 self._model.half()
             self._model.to(target)
+            repair_1d_position_id_buffers(self._model, torch)
             self._model.eval()
         return self._tokenizer, self._model
 
