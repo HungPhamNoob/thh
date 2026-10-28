@@ -38,17 +38,51 @@ export VIBIOMIR_GPU_MAX_GIB=${VIBIOMIR_GPU_MAX_GIB:-3.0}
 export VIBIOMIR_GPU_REPORT="artifacts/full/${method}/gpu_report.json"
 exec > >(tee -a "artifacts/full/${method}/build.log") 2>&1
 
-"$python_bin" -m vibiomir index prepare \
-  --config "$config" \
-  --hf-dataset "$dataset" \
-  --hf-pattern 'corpus/v1/*.parquet' \
-  --hf-revision "$revision" \
-  --expected-shards 13 \
-  --expected-source-rows 1220598 \
-  --expected-documents 1047384 \
-  --expected-empty-rows 173214 \
-  --official-vibiomir-corpus \
-  --store "$store"
+# Reuse an existing store when it verifiably matches the pinned corpus;
+# preparing again writes a full temporary copy that may not fit on disk.
+# Set FORCE_PREPARE=1 to rebuild the store from the shards anyway.
+need_prepare=1
+if [[ -f "$store" && "${FORCE_PREPARE:-0}" != "1" ]]; then
+  if "$python_bin" - "$store" "$revision" <<'PY'
+import json
+import sqlite3
+import sys
+
+store, revision = sys.argv[1], sys.argv[2]
+try:
+    con = sqlite3.connect(f"file:{store}?mode=ro", uri=True)
+    meta = {k: json.loads(v) for k, v in con.execute("SELECT key, value FROM store_metadata")}
+    docs = con.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+    con.close()
+except sqlite3.Error:
+    sys.exit(1)
+ok = (
+    meta.get("corpus_revision") == revision
+    and meta.get("source_rows") == 1_220_598
+    and docs == meta.get("expected_documents")
+    and docs > 0
+)
+sys.exit(0 if ok else 1)
+PY
+  then
+    need_prepare=0
+    echo "Reusing valid store $store for corpus revision $revision (FORCE_PREPARE=1 to rebuild)"
+  fi
+fi
+
+if [[ "$need_prepare" == "1" ]]; then
+  "$python_bin" -m vibiomir index prepare \
+    --config "$config" \
+    --hf-dataset "$dataset" \
+    --hf-pattern 'corpus/v1/*.parquet' \
+    --hf-revision "$revision" \
+    --expected-shards 13 \
+    --expected-source-rows 1220598 \
+    --expected-documents 1047384 \
+    --expected-empty-rows 173214 \
+    --official-vibiomir-corpus \
+    --store "$store"
+fi
 
 "$python_bin" scripts/run_with_gpu_monitor.py \
   --report "artifacts/full/${method}/gpu_peak_index.json" -- \
