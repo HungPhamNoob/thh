@@ -191,11 +191,11 @@ Trên Windows, `powershell -ExecutionPolicy Bypass -File scripts/start_crawl.ps1
 - **PubMed**: 1.200 lô × 200 PMID, POST `efetch.fcgi`, ≤ 3 request/giây khi không có `NCBI_API_KEY` (9 khi có). Mỗi lô ~3 MB XML; cả 240.000 bài mất ~15–20 phút. `text` = `ArticleTitle` + các `AbstractText` (giữ nhãn `BACKGROUND: …`), bỏ `OtherAbstract` và copyright. Trạng thái: `ok` khi abstract ≥ 200 ký tự, `short` khi chỉ có title, `gone` khi PMID không có trong kết quả trả về. Chạy lại thì bỏ qua lô đã có file part.
 - **`lighth0406/R2AI_STAGE3_ds`**: tài khoản cá nhân trên HF (tên hiển thị "Hải Đăng Lê Võ", thuộc tổ chức `AncientWings`), tạo ngày 13/10/2026, **không có dataset card và license**. Đã tải để đối chiếu (revision `9fe2787f8495b52bcf677ac24d8e25f18a7553d5`, `corpus.parquet` SHA256 `2b5bd99b…468b5`; `hf_hub_download` qua `hf_xet` bị treo nên phải dùng `curl`) rồi xoá ngày 25/10. Lệnh `vibiomir ingest bootstrap --dataset lighth0406 --input …` (chỉ dùng để đối chiếu) chỉ giữ những dòng có cặp `id`/`url` khớp file chính thức, giữ nguyên `text`, gắn `source=hf_lighth0406`, `extractor=lighth0406:<extractor gốc>`. Cần BTC đồng ý trước khi đưa vào corpus nộp bài (`competition.md` §8 câu 5).
 
-### 2.7 Nguồn dự phòng Wayback Machine (D7, chạy từ 26/10)
+### 2.7 Nguồn dự phòng Wayback Machine (D7, 26/10–27/10)
 
 ```bash
 vibiomir ingest wayback --skip-domain pubmed.ncbi.nlm.nih.gov --skip-domain vov.vn \
-  --skip-domain dantri.com.vn --skip-domain www.qdnd.vn --concurrency 8
+  --skip-domain zysjonline.com --skip-domain pmc-ecm-healthblog.beta.pharmacity.io --concurrency 8
 vibiomir ingest status --state data/interim/wayback_state.sqlite
 ```
 
@@ -204,7 +204,11 @@ vibiomir ingest status --state data/interim/wayback_state.sqlite
 - Trong state Wayback, `gone` nghĩa là Wayback không có bản lưu (hoặc chỉ lưu trang 404), còn `blocked` nghĩa là bản lưu chính là trang chặn bot. Trang `blocked` không làm dừng domain, vì nó không cho biết gì về các trang khác.
 - Mọi domain dùng chung một giới hạn tốc độ cho `web.archive.org`: bắt đầu 1 request/giây, trần 3, tối đa 8 request đồng thời, giảm một nửa khi gặp 429/503. `Crawl-delay` của site gốc không áp vào Wayback, vì request không tới site gốc; còn `Disallow` trong robots.txt của site gốc (nếu đọc được) vẫn được tôn trọng.
 - Đo trên 15 URL ngẫu nhiên mỗi domain bằng CDX API (26/10): nhathuoclongchau 15/15, youmed 15/15, laodong 7/15, baodanang 3/15, 120ask 1/15 (chạy thử 3/8), baohaiphong 1/15, baonghean 1/15, zysjonline 0/14. Chạy thử 32 trang: 22 ok, 10 không có bản lưu. Ước tính lấy thêm được khoảng 100–130 nghìn trang. Job bắt đầu lúc 09:21 ngày 26/10 với 277.134 trang của 28 domain, chạy ở ~2–3 trang/giây, mất **~25–40 giờ**.
-- dantri.com.vn và www.qdnd.vn không qua Wayback: hai site này vẫn trả lời, chỉ giới hạn tốc độ, nên được crawl lại trực tiếp ở 0,5–1 request/giây.
+- Tỉ lệ có bản lưu đo trên ~340 trang đầu mỗi domain (26/10 09:55): youmed 100%, nhathuoclongchau 94%, hanoimoi 40%, laodong 17%, baodanang 14%, 120ask 10%, baohaiphong 4%, baonghean 2%, iiyi 1%, zysjonline và pmc-ecm-healthblog 0% (hai domain này bị bỏ khỏi job). Ước tính lấy thêm **~100 nghìn trang** (vi ~91 nghìn, zh ~9,6 nghìn).
+- dantri.com.vn và www.qdnd.vn được crawl lại trực tiếp ở 0,5–1 request/giây trước. qdnd lấy được; dantri chỉ còn trả connect timeout (có lẽ đã chặn IP sau khi bị 429), nên từ 09:47 ngày 26/10 hai domain này cũng chạy qua Wayback.
+- **Kết quả (27/10 16:46)**: job chạy xong lượt chính lúc 15:05 ngày 27/10, rồi chạy lại các trang lỗi. Trên 281.588 trang trong state: 108.515 ok, 109 ngắn, 152.977 không có bản lưu, 8.802 bản lưu là trang chặn bot (gần hết là laodong.vn), 32 lỗi mạng hoặc lỗi 503 của Wayback, 11.152 bị bỏ qua (zysjonline, pmc-ecm-healthblog), 1 trang không hỗ trợ. Số trang ok theo domain: nhathuoclongchau 76.171, laodong 10.773, youmed 7.176, 120ask 6.987, baodanang 2.112, dantri 1.909, thaythuocvietnam 1.169, baonghean 785, baohaiphong 611, hanoimoi 492, qdnd 152, iiyi 97.
+- Text từ Wayback của 120ask (layout cũ, khoảng 2013) còn dính menu khoa và nút trả tiền ở cuối trang, vì extractor rơi về trafilatura. Việc này để lại cho D5.
+- Ghi part theo thời gian: crawler ghi part và commit state sau mỗi 2.000 trang **hoặc** mỗi 5 phút (`flush_interval`). Trước khi có mốc 5 phút, mỗi lần process vov.vn (20 giây/trang) bị kill là mất tới hàng nghìn trang chưa ghi, phải tải lại.
 
 ## 3. Merge và kiểm tra (D6)
 
@@ -216,9 +220,17 @@ vibiomir ingest export-jsonl --output runs/sample.jsonl --language vi --limit 10
 Thứ tự ưu tiên nguồn cho mỗi id: tự crawl (`ok`) > PubMed E-utilities > bản công khai tốt nhất cho domain đó > Wayback > rỗng.
 
 - Cài đặt (`src/vibiomir/ingest/merge.py`): mặc định đọc `data/interim/parts/{crawl,pubmed,wayback}/`. Với mỗi id, dòng thắng được chọn lần lượt theo: text đủ dài (≥ 200 ký tự ngoài title) > nguồn (`crawl` > `pubmed_eutils` > `wayback` > nguồn khác) > `fetched_at` mới nhất. id không có dòng nào vẫn được giữ với `text=""` và `source=missing`. `url`, `domain`, `language` luôn lấy từ manifest chính thức; `url_mismatches` đếm các dòng part có URL khác URL chính thức.
-- Đầu ra gồm 13 file, mỗi file 100.000 id liên tiếp, sắp theo id. Merge chạy hai lượt để không nạp toàn bộ text vào RAM: lượt 1 chỉ đọc khoá xếp hạng, lượt 2 chép dòng thắng vào từng bucket. Toàn bộ mất khoảng 1,5 phút. Các part gốc không bị sửa, nên merge lại bao nhiêu lần cũng được.
+- Đầu ra gồm 13 file, mỗi file 100.000 id liên tiếp, sắp theo id. Merge chạy hai lượt để không nạp toàn bộ text vào RAM: lượt 1 chỉ đọc khoá xếp hạng, lượt 2 chép dòng thắng vào từng bucket. Toàn bộ mất khoảng 1,5 phút ở v0 và 7–9 phút ở v1 (máy 16 GB đang chạy thêm WSL và trình duyệt). Bước làm sạch xử lý mỗi lần 10.000 dòng; trước khi chia lô, v1 bị lỗi `ArrowMemoryError` ở bucket có nhiều trang dài. Các part gốc không bị sửa, nên merge lại bao nhiêu lần cũng được.
+- **Redirect về trang chủ**: URL bài viết mà `final_url` là trang chủ của site (`/`, `/index.html`, …) thì bài đã bị gỡ. Crawler (từ 26/10) ghi các trang này là `gone` với lỗi `redirect to home page`, và merge không bao giờ chọn những dòng đó. Ngày 26/10 có 2.246 trang như vậy trong dữ liệu đã crawl (thaythuocvietnam.vn 2.230, suckhoedoisong.vn 12, hellobacsi.com 3, baoquangninh.vn 1). Chúng đã được chuyển sang `gone` trong crawl state để job Wayback thử lấy lại.
+- **Làm sạch** (`ingest/clean.py`, tắt bằng `--no-clean`): vì không giữ HTML gốc, boilerplate được bỏ ở mức text, mỗi lần bỏ nguyên một đoạn, và đoạn đầu (title) luôn được giữ:
+  1. đoạn chỉ gồm dấu bảng hoặc dấu liệt kê (`| |`, `-`, `›`);
+  2. đoạn ≤ 400 ký tự xuất hiện trong ≥ 30% trang của cùng domain, học từ 1.000 trang đầu của domain đó (domain cần ≥ 30 trang). Ví dụ: dòng hotline của vinmec (99,8% số trang), dòng bản quyền 39.net, khối địa chỉ của Tâm Anh, menu và sidebar của thaythuocvietnam, suckhoeviet, baophutho, placeholder `{title}`/`{head}` của baophutho;
+  3. mọi thứ sau tiêu đề khối "bài liên quan" (`Các tin khác`, `BÀI VIẾT CÙNG CHỦ ĐỀ`, `相关文章`, `其他类似疾病`, …) khi tiêu đề đó nằm ở nửa sau trang. Không dùng "tin liên quan", vì báo Việt đặt khối này ở giữa bài.
+  `text_sha256` được tính lại sau khi làm sạch. Ở v0.1, 106.206 doc bị sửa, tổng cộng bỏ 28,4 triệu ký tự (~1,5% corpus); nhiều nhất là thaythuocvietnam (81%, phần lớn là trang chủ do redirect), baophutho (41%), suckhoeviet (33%), wujue (26%), tamanhhospital (17%).
 - `export-jsonl` xuất subset (lọc theo `--ids`, `--language`, `--limit`) theo đúng định dạng `vibiomir.io.load_documents` đọc được, để chạy `vibiomir run` trên một phần corpus.
 - **v0 (26/10 09:24)**: 1.550 part, 1.220.598 dòng, id unique, 0 URL lệch, bỏ 578 dòng trùng (do restart giữa chừng). en 239.251 ok / 645 ngắn / 104 thiếu; vi 556.982 / 2.004 / 181.612; zh 117.868 / 16.509 / 105.623. Tổng 914.101 ok + 19.158 ngắn = 76,5% id có text. 1,2 GB.
+- **v0.1 (26/10 09:54)**: v0 + làm sạch + bỏ redirect về trang chủ + 2 part Wayback đầu tiên. en 239.251 / 645 / 104; vi 554.397 / 3.349 / 182.852; zh 117.765 / 16.727 / 105.508.
+- **v1 (28/10 05:27)**: v0.1 + toàn bộ Wayback + vov.vn (9.784/9.784 trang). 2.408 part, 1.220.598 dòng, id unique, 0 URL lệch; bỏ 578 dòng trùng và 2.248 redirect về trang chủ; làm sạch 200.865 doc (bỏ 46,2 triệu ký tự). en 239.251 ok / 645 ngắn / 104 thiếu; vi 662.587 / 3.394 / 74.617; zh 123.727 / 17.811 / 98.462. Tổng 1.025.565 ok + 21.850 ngắn = **85,8% id có text** (en 99,9%, vi 89,9%, zh 59,0%). Nguồn: crawl 698.895, pubmed_eutils 239.896, wayback 108.624, thiếu 173.183. Phần thiếu tập trung ở 120ask (91.173), laodong (20.509), baohaiphong (15.675), baonghean (15.156), baodanang (12.388), zysjonline (6.591), pmc-ecm-healthblog (5.333), nhathuoclongchau (3.427).
 - ask.39.net có 14.036 / 32.772 trang ngắn. Đã xem mẫu: đây là hỏi đáp thật, chỉ ngắn vì tiếng Trung viết cô đọng (150 ký tự đã là một câu trả lời đầy đủ), không phải trang chặn. Khoảng 1.250 trang chỉ có câu hỏi; cần kiểm tra trong D5 xem câu trả lời có bị extractor bỏ sót không.
 
 - Giữ đủ mọi id, kể cả khi trùng text: nhãn chấm theo id. `text_sha256` chỉ dùng để encode embedding một lần cho các bản trùng.

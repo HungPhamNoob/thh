@@ -22,6 +22,7 @@ from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
 from vibiomir.ingest.domains import (
@@ -65,6 +66,8 @@ CHALLENGE_URL = re.compile(r"/(?:verify|captcha|challenge)(?:\.html?|\.php|/)?$"
 REPEATED_SHORT_LIMIT = 5
 CHALLENGE_MAX_BYTES = 20_000
 HTML_TYPES = ("text/html", "application/xhtml", "text/plain")
+HOME_PATHS = ("", "/", "/index.html", "/index.htm", "/index.php")
+ARCHIVE_PREFIX = re.compile(r"^https?://web\.archive\.org/web/\d+[a-z_]*/", re.I)
 TRANSIENT_STATUSES = {408, 425, 500, 502, 504, 520, 521, 522, 523, 524}
 THROTTLE_STATUSES = {429, 503}
 
@@ -84,6 +87,9 @@ class CrawlConfig:
     timeout: float = 20.0
     max_bytes: int = 5_000_000
     flush_every: int = 2000
+    # Also flush after this many seconds, so a slow domain (vov.vn: 20 s per page) loses at most
+    # a few minutes of work when the process is killed.
+    flush_interval: float = 300.0
     keep_samples: int = 50
     max_problem_samples: int = 200
     block_threshold: int = 10
@@ -110,6 +116,19 @@ class FetchResult:
     body: bytes
     error: str | None = None
     retry_after: str | None = None
+
+
+def redirected_home(url: str, final_url: str | None) -> bool:
+    """True when an article URL ends on the site's front page, i.e. the article was removed.
+
+    Seen on 2026-10-26: 2,230 thaythuocvietnam.vn articles redirect to the home page. A Wayback
+    copy is unwrapped first, so ``.../web/2024.../https://site.vn/`` counts as the front page.
+    """
+    if not final_url:
+        return False
+    start = urlsplit(url)
+    end = urlsplit(ARCHIVE_PREFIX.sub("", final_url))
+    return end.path in HOME_PATHS and not end.query and start.path not in ("", "/")
 
 
 def classify_response(status: int, body: bytes, final_url: str = "") -> str | None:
@@ -191,10 +210,14 @@ class RateGroup:
 class ResultSink:
     """Buffers rows and state updates; each flush writes one parquet part, then commits state."""
 
-    def __init__(self, state: CrawlState, out_dir: Path, flush_every: int) -> None:
+    def __init__(
+        self, state: CrawlState, out_dir: Path, flush_every: int, flush_interval: float = 300.0
+    ) -> None:
         self.state = state
         self.out_dir = out_dir
         self.flush_every = flush_every
+        self.flush_interval = flush_interval
+        self.last_flush = time.monotonic()
         self.rows: list[dict] = []
         self.updates: list[PageUpdate] = []
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -206,7 +229,8 @@ class ResultSink:
         self.updates.append(update)
         if row is not None:
             self.rows.append(row)
-        if len(self.updates) >= self.flush_every:
+        if (len(self.updates) >= self.flush_every
+                or time.monotonic() - self.last_flush >= self.flush_interval):
             self.flush()
 
     def flush(self) -> None:
@@ -219,6 +243,7 @@ class ResultSink:
         if self.updates:
             self.state.update(self.updates)
         self.rows, self.updates = [], []
+        self.last_flush = time.monotonic()
 
 
 PART_COLUMNS = (
@@ -284,7 +309,8 @@ class Crawler:
                 log.info("seeded %d new pages (%d total)", added, state.count())
             if exclude_ids:
                 state.exclude(exclude_ids)
-            sink = ResultSink(state, self.config.out_dir, self.config.flush_every)
+            sink = ResultSink(state, self.config.out_dir, self.config.flush_every,
+                              self.config.flush_interval)
             try:
                 asyncio.run(self._run(state, sink))
             finally:
@@ -412,6 +438,10 @@ class Crawler:
             self._save_sample(domain, doc_id, result.body, stats, problem=True)
             self._finish(sink, stats, PageUpdate(doc_id, verdict, error=f"http {result.status}",
                                                  **base))
+            return
+        if redirected_home(url, result.final_url):
+            update = PageUpdate(doc_id, "gone", error="redirect to home page", **base)
+            self._finish(sink, stats, update)
             return
         mime = result.content_type.split(";")[0].strip().lower()
         if mime and not mime.startswith(HTML_TYPES):
