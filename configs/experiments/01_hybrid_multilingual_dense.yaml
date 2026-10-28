@@ -10,7 +10,6 @@ document_retrievers:
     model_name: Alibaba-NLP/gte-multilingual-base
     trust_remote_code: true
     normalize_embeddings: true
-    faiss_factory: HNSW32
     k: 300
     weight: 1.2
 
@@ -24,7 +23,6 @@ chunk_retrievers:
     model_name: Alibaba-NLP/gte-multilingual-base
     trust_remote_code: true
     normalize_embeddings: true
-    faiss_factory: HNSW32
     k: 700
     weight: 1.25
 

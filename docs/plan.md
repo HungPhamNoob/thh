@@ -88,11 +88,11 @@ Trạng thái: `todo` / `doing` / `done`. Ưu tiên: P0 > P1 > P2.
 
 | Mã | Ưu tiên | Việc | Tiêu chí xong | Trạng thái |
 |---|---|---|---|---|
-| R0 | P0 | Runner cho toàn corpus, không nạp hết vào RAM: local SQLite artifact store + persistent Lucene/FAISS/PLAID indexes, chunk-first hoặc cascade, selection → submission. | Code và smoke test xong; benchmark 1.200 query/RAM trên corpus v1 còn chờ artifact thật | implemented; benchmark pending |
+| R0 | P0 | Runner cho toàn corpus, không nạp hết vào RAM: local SQLite artifact store + persistent Qdrant/Lucene/PLAID indexes, chunk-first hoặc cascade, selection → submission. | Code và smoke test xong; benchmark 1.200 query/RAM trên corpus v1 còn chờ artifact thật | implemented; benchmark pending |
 | R1 | P0 | Query dài nhiều ý: tách câu/ý, rút keyphrase y khoa (LLM mở, ví dụ Qwen2.5-7B-Instruct, chế độ `keywords` đã có), giữ query gốc làm một variant. | Cải thiện trên dev; không giảm doc precision | todo |
 | R2 | P1 | Nhận diện trang nguồn gần trùng query (trang hỏi đáp chứa câu hỏi): điểm BM25 top-1 vượt xa top-2 → coi là doc chắc chắn. | Đo precision của luật trên dev | todo |
 | R3 | P0 | Xuyên ngữ: dịch query VI→EN/ZH (NLLB-200 hoặc LLM mở ≤ 15B), BM25 trên index EN (PubMed) và ZH (bigram CJK); tuỳ chọn MedCPT cho nhánh EN. | Recall doc EN/ZH tăng trên dev | todo |
-| R4 | P1 | Dense đa ngữ doc-level: Qwen3-Embedding-0.6B hoặc BGE-M3 trên title + ~512 token đầu, encode trên GPU, FAISS (HNSW hoặc IVF-PQ); dense cấp chunk chỉ tính cho doc ứng viên khi query. | Index 1,22M doc; tăng recall@100 trên dev | todo |
+| R4 | P1 | Dense đa ngữ doc-level: Qwen3-Embedding-0.6B hoặc BGE-M3 trên title + ~512 token đầu, encode trên GPU, Qdrant; dense cấp chunk chỉ tính cho doc ứng viên khi query. | Index 1,22M doc; tăng recall@100 trên dev | todo |
 | R5 | P1 | Rerank chunk của top doc: bge-reranker-v2-m3 / Qwen3-Reranker-0.6B/4B / gte-multilingual-reranker-base. | Tăng chunk F2 trên dev; 1.200 query < 1 giờ trên T4 | todo |
 | R6 | P0 | Selection: số doc mỗi query (ngưỡng tương đối + gap, có thể theo ngôn ngữ), số chunk mỗi doc, và **độ dài chunk**. Theo luật mới, chunk chỉ được tính khi dài khoảng 0,4–2,5 lần chunk vàng, nên phải ước lượng cỡ chunk vàng: 2–3 bài nộp giữ nguyên tập doc, chỉ đổi cỡ chunk (1 câu / 1 đoạn / 2–3 đoạn), so chunk F2; tiếng Trung cắt theo đoạn. Sweep phần còn lại trên dev. | Bảng sweep, cỡ chunk được chọn có bằng chứng từ leaderboard | todo |
 | R7 | P1 | Fusion nhiều retriever và ngôn ngữ (RRF có trọng số), hiệu chỉnh trọng số trên dev. | Tốt hơn retriever đơn tốt nhất | todo |

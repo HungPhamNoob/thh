@@ -31,12 +31,10 @@ class TransformersEncoderRetriever(Retriever):
     dimension: int | None = None
     trust_remote_code: bool = False
     device: str | None = None
-    faiss_factory: str | None = None
     _tokenizer: object | None = field(default=None, init=False, repr=False)
     _model: object | None = field(default=None, init=False, repr=False)
     _items: list[SearchItem] = field(default_factory=list, init=False, repr=False)
     _embeddings: np.ndarray | None = field(default=None, init=False, repr=False)
-    _faiss_index: object | None = field(default=None, init=False, repr=False)
 
     def _load_tower(self, model_name: str) -> tuple[object, object]:
         try:
@@ -144,18 +142,6 @@ class TransformersEncoderRetriever(Retriever):
             max_length=self.document_max_length or self.max_length,
             as_pair=self.document_as_pair,
         )
-        if self.faiss_factory:
-            try:
-                import faiss
-            except ImportError as exc:
-                raise ImportError("Install `vibiomir-lab[dense]` for FAISS indexing") from exc
-            dimension = int(self._embeddings.shape[1])
-            self._faiss_index = faiss.index_factory(
-                dimension, self.faiss_factory, faiss.METRIC_INNER_PRODUCT
-            )
-            if not self._faiss_index.is_trained:
-                self._faiss_index.train(self._embeddings)
-            self._faiss_index.add(self._embeddings)
 
     def search(self, query: str, k: int, allowed_ids: set[str] | None = None) -> list[SearchResult]:
         if self._embeddings is None:
@@ -165,19 +151,6 @@ class TransformersEncoderRetriever(Retriever):
             self._query_tower(),
             max_length=self.query_max_length or self.max_length,
         )[0]
-        if self._faiss_index is not None and allowed_ids is None:
-            scores, indices = self._faiss_index.search(query_vector[None, :], k)
-            return [
-                SearchResult(
-                    item_id=self._items[int(index)].id,
-                    score=float(score),
-                    rank=rank,
-                    source=self.name,
-                    payload=self._items[int(index)].payload,
-                )
-                for rank, (score, index) in enumerate(zip(scores[0], indices[0]), 1)
-                if index >= 0
-            ]
         scores = self._embeddings @ query_vector
         candidates = (
             (float(score), index)

@@ -7,11 +7,11 @@ from .bge_m3 import BGEM3Retriever
 from .bm25 import BM25Retriever
 from .colbert import ColBERTv2Retriever
 from .dense import AsymmetricSentenceTransformerRetriever, SentenceTransformerRetriever
-from .faiss_index import FaissIndexRetriever
 from .impact import LuceneImpactRetriever
 from .late_chunking import LateChunkingRetriever
 from .numpy_index import NumpyIndexRetriever
 from .pyserini import PyseriniRetriever
+from .qdrant_index import QdrantIndexRetriever
 from .splade import SpladeRetriever
 from .transformers_dense import AsymmetricTransformersRetriever, TransformersEncoderRetriever
 
@@ -29,6 +29,11 @@ def build_retriever(config: dict[str, Any]) -> Retriever:
         "model_revision",
         "source_revision",
         "factory",
+        "state_dir",
+        "distance",
+        "on_disk",
+        "store_text_payload",
+        "recreate",
     }
     params = {k: v for k, v in config.items() if k not in controls}
     if name == "bm25":
@@ -45,8 +50,8 @@ def build_retriever(config: dict[str, Any]) -> Retriever:
         return BGEM3Retriever(**params)
     if name == "pyserini":
         return PyseriniRetriever(**params)
-    if name == "faiss":
-        return FaissIndexRetriever(**params)
+    if name == "qdrant":
+        return QdrantIndexRetriever(**params)
     if name == "colbertv2":
         return ColBERTv2Retriever(**params)
     if name == "splade":

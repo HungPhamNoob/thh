@@ -31,15 +31,11 @@ PY
 
 smoke_dir=runs/smoke
 store="$smoke_dir/store.sqlite"
-config=configs/smoke/indexed_hash.yaml
+config=configs/smoke/qdrant_hash.yaml
 python -m vibiomir index prepare \
   --config "$config" --corpus examples/corpus.jsonl --store "$store"
-python -m vibiomir index build-numpy \
-  --config "$config" --store "$store" --stage document --retriever 0 \
-  --output "$smoke_dir/index_doc"
-python -m vibiomir index build-numpy \
-  --config "$config" --store "$store" --stage chunk --retriever 0 \
-  --output "$smoke_dir/index_chunk"
+python -m vibiomir index build-qdrant \
+  --config "$config" --store "$store" --stage chunk --retriever 0 --recreate
 python -m vibiomir indexed-run \
   --config "$config" --store "$store" --queries examples/queries.jsonl \
   --output "$smoke_dir/submission.json" --gold examples/gold.json \

@@ -3,10 +3,13 @@ extends: ../base.yaml
 # Source: Alibaba-NLP/mGTE. Dense retrieval and its released multilingual reranker.
 document_retrievers: []
 chunk_retrievers:
-  - type: faiss
+  - type: qdrant
     name: mgte_dense
-    index_dir: artifacts/full/01_mgte_dense/chunk_index
-    factory: HNSW32
+    collection_name: mgte_dense_chunks
+    state_dir: artifacts/full/01_mgte_dense/qdrant_state
+    distance: cosine
+    on_disk: true
+    store_text_payload: true
     k: 1000
     weight: 1.0
     encoder:

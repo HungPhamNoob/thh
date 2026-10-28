@@ -4,10 +4,13 @@ extends: ../base.yaml
 # dense+sparse+ColBERT scoring on the fused candidate pool.
 document_retrievers: []
 chunk_retrievers:
-  - type: faiss
+  - type: qdrant
     name: bge_m3_dense
-    index_dir: artifacts/full/02_bge_m3/dense_chunk_index
-    factory: HNSW32
+    collection_name: bge_m3_dense_chunks
+    state_dir: artifacts/full/02_bge_m3/qdrant_state
+    distance: cosine
+    on_disk: true
+    store_text_payload: true
     k: 900
     weight: 1.0
     encoder:

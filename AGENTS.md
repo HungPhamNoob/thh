@@ -48,7 +48,7 @@ src/vibiomir/
 ├── io/             đọc JSONL corpus/query, ghi và validate submission
 ├── chunking/       fixed, sentence, recursive, contextual (+ factory)
 ├── query/          identity, synonyms, NLLB, local LLM, composite (+ factory)
-├── retrieval/      BM25 in-memory, SentenceTransformer/FAISS, HF encoder, BGE-M3, Pyserini (+ factory)
+├── retrieval/      BM25 in-memory, SentenceTransformer/Qdrant, HF encoder, BGE-M3, Pyserini (+ factory)
 ├── fusion/         weighted RRF, normalized CombSUM
 ├── reranking/      identity, cross-encoder
 ├── aggregation/    chunk score → document score (max, topk_mean, logsumexp)

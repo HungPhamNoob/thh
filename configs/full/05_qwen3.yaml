@@ -3,10 +3,13 @@ extends: ../base.yaml
 # Official Qwen3 embedding instruction/last-token recipe plus official yes/no reranker.
 document_retrievers: []
 chunk_retrievers:
-  - type: faiss
+  - type: qdrant
     name: qwen3_embedding
-    index_dir: artifacts/full/05_qwen3/chunk_index
-    factory: HNSW32
+    collection_name: qwen3_embedding_chunks
+    state_dir: artifacts/full/05_qwen3/qdrant_state
+    distance: cosine
+    on_disk: true
+    store_text_payload: true
     k: 1000
     weight: 1.0
     encoder:

@@ -14,7 +14,7 @@ from vibiomir.selection import build_selector
 
 
 class IndexedSearchPipeline:
-    """Full-corpus pipeline backed by local SQLite + Lucene/FAISS/PLAID indexes."""
+    """Full-corpus pipeline backed by SQLite + Qdrant/Lucene/PLAID indexes."""
 
     def __init__(self, config: dict[str, Any], store_path: str):
         self.config = config
@@ -33,6 +33,10 @@ class IndexedSearchPipeline:
         self.chunk_selector = build_selector(config.get("chunk_selection", {"max_k": 10}))
 
     def close(self) -> None:
+        for retriever in [*self.doc_retrievers, *self.chunk_retrievers]:
+            close = getattr(retriever, "close", None)
+            if close is not None:
+                close()
         self.store.close()
 
     def _retrieve(

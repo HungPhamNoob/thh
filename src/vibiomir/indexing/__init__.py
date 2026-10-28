@@ -1,12 +1,12 @@
 from .encoders import TextEncoder, build_text_encoder
-from .faiss import build_faiss_index
+from .qdrant import build_qdrant_index
 from .sparse import build_sparse_encoder, export_impact_vectors
 from .store import ArtifactStore, prepare_store
 
 __all__ = [
     "ArtifactStore",
     "TextEncoder",
-    "build_faiss_index",
+    "build_qdrant_index",
     "build_sparse_encoder",
     "build_text_encoder",
     "prepare_store",

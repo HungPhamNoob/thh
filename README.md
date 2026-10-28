@@ -60,8 +60,8 @@ flowchart TD
 src/vibiomir/
 ├── chunking/       fixed, sentence, recursive, contextual
 ├── query/          identity, synonym, NLLB, local-LLM expansion
-├── indexing/       SQLite artifact store, FAISS/impact/PLAID export
-├── retrieval/      BM25, FAISS, BGE-M3, SPLADE, ColBERTv2, Late Chunking
+├── indexing/       SQLite artifact store, Qdrant/impact/PLAID export
+├── retrieval/      BM25, Qdrant dense, BGE-M3, SPLADE, ColBERTv2, Late Chunking
 ├── fusion/         weighted RRF, normalized CombSUM
 ├── reranking/      identity, HF classifier, BGE-M3 multi-vector, Qwen3
 ├── aggregation/    MaxP, top-k mean, log-sum-exp
@@ -146,13 +146,26 @@ bash scripts/run_method.sh 00_bm25_lucene \
   data/raw/official/query.parquet path/to/dev_gold.json
 ```
 
-`store.sqlite` giữ chunk gốc; Lucene/FAISS/PLAID được lưu local dưới `artifacts/full/`. BTC
-không yêu cầu Qdrant Cloud.
+`store.sqlite` giữ chunk gốc để dựng submission và kiểm tra substring. Các vector dense cùng
+payload id/offset/chunk được đẩy vào Qdrant; Lucene/PLAID vẫn dùng cho BM25, learned sparse và
+ColBERTv2. BTC không bắt buộc Qdrant Cloud, nhưng các pipeline dense của repo này dùng Qdrant.
+
+Tạo `.env` từ `.env.example` rồi điền secret ở máy chạy (file `.env` đã bị git-ignore):
+
+```bash
+cp .env.example .env
+# QDRANT_URL=https://<cluster>.cloud.qdrant.io:6333
+# QDRANT_API_KEY=<secret>
+# QDRANT_COLLECTION_PREFIX=vibiomir
+```
+
+Không dán API key vào YAML, shell script hay commit. Mỗi dense method có collection riêng; prefix
+cho phép nhiều thí nghiệm dùng chung cluster mà không đè collection của nhau.
 
 ## Optional dependencies
 
 ```bash
-pip install -e '.[dense]'        # SentenceTransformers, CrossEncoder, FAISS
+pip install -e '.[dense]'        # SentenceTransformers (Qdrant client là core dependency)
 pip install -e '.[bge]'          # BGE-M3 dense/sparse/ColBERT vectors
 pip install -e '.[lucene]'       # Pyserini
 pip install -e '.[colbert]'       # ColBERTv2/PLAID

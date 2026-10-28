@@ -10,7 +10,7 @@ full-corpus nằm trong `configs/full/`; cách chạy ở [`full_pipelines.md`](
 |---|---|---|---|
 | BM25/Lucene | `castorini/pyserini` | `JsonCollection`, Lucene BM25, index cục bộ | `00_bm25_lucene` |
 | mGTE | model card `Alibaba-NLP/gte-multilingual-base` và reranker | dense đa ngữ, normalize embedding, HF sequence-classification reranker | `01_mgte_dense` |
-| BGE-M3 | `FlagOpen/FlagEmbedding`, `BAAI/bge-m3` | dense FAISS + lexical impact; `compute_score` dense/sparse/ColBERT chính chủ trên candidate pool | `02_bge_m3` |
+| BGE-M3 | `FlagOpen/FlagEmbedding`, `BAAI/bge-m3` | dense Qdrant + lexical impact; `compute_score` dense/sparse/ColBERT chính chủ trên candidate pool | `02_bge_m3` |
 | MedCPT | model card NCBI của query/article/cross encoders | hai tower riêng, CLS, query 64 token, article pair 512 token, raw dot product; chỉ index tiếng Anh | `03_medcpt_en` |
 | BMRetriever | `ritaranx/BMRetriever` | task instruction, passage prefix, thêm EOS, last-token pooling, raw dot product; chỉ tiếng Anh | `04_bmretriever_en` |
 | Qwen3 Embedding/Reranker | `QwenLM/Qwen3-Embedding` | instruction query, document không instruction, left padding + EOS + last token + L2; reranker causal-LM xác suất yes/no | `05_qwen3` |
@@ -40,7 +40,7 @@ ColBERT/SPLADE/Late Chunking.
 ## Ranh giới tính đúng đắn
 
 - BGE-M3 multi-vector được dùng làm exact reranker trên candidate pool; không giả vờ rằng
-  FAISS dense là một PLAID index.
+  Qdrant dense là một PLAID index.
 - SPLADE/BGE lexical dùng impact index; BM25 dùng index riêng. Không đưa sparse weight vào
   `DefaultLuceneDocumentGenerator` của BM25.
 - MedCPT và BMRetriever không chạy trực tiếp trên tài liệu Việt/Trung.

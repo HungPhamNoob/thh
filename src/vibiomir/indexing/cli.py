@@ -10,9 +10,9 @@ from vibiomir.evaluation import evaluate_submission
 from vibiomir.io import iter_documents, load_queries, load_submission, write_submission
 from vibiomir.pipeline import IndexedSearchPipeline
 
-from .faiss import build_faiss_index
-from .late_chunking import build_late_chunking_faiss_index
+from .late_chunking import build_late_chunking_qdrant_index
 from .numpy import build_numpy_index
+from .qdrant import build_qdrant_index
 from .sparse import export_impact_vectors
 from .store import ArtifactStore, prepare_store
 
@@ -52,36 +52,48 @@ def _retriever_config(config: dict, stage: str, index: int) -> dict:
         raise ValueError(f"No {stage} retriever #{index} in config") from exc
 
 
-def command_build_faiss(args: argparse.Namespace) -> int:
+def command_build_qdrant(args: argparse.Namespace) -> int:
     retriever = _retriever_config(_config(args), args.stage, args.retriever)
-    if retriever.get("type") != "faiss" or "encoder" not in retriever:
-        raise ValueError("Selected retriever must have type=faiss and an encoder block")
+    if retriever.get("type") != "qdrant" or "encoder" not in retriever:
+        raise ValueError("Selected retriever must have type=qdrant and an encoder block")
+    state_dir = args.state_dir or retriever.get("state_dir")
+    if not state_dir:
+        raise ValueError("Set state_dir in the retriever config or pass --state-dir")
+    common = {
+        "languages": retriever.get("languages"),
+        "distance": retriever.get("distance", "cosine"),
+        "recreate": args.recreate,
+        "on_disk": retriever.get("on_disk", True),
+        "store_text_payload": retriever.get("store_text_payload", True),
+        "url_env": retriever.get("url_env", "QDRANT_URL"),
+        "api_key_env": retriever.get("api_key_env", "QDRANT_API_KEY"),
+        "prefix_env": retriever.get("prefix_env", "QDRANT_COLLECTION_PREFIX"),
+        "local_path": args.local_path or retriever.get("local_path"),
+        "timeout": retriever.get("timeout", 60.0),
+        "prefer_grpc": retriever.get("prefer_grpc", False),
+    }
     indexing = retriever.get("indexing", {})
     if indexing.get("type") == "late_chunking":
         if args.stage != "chunk":
             raise ValueError("Late chunking can only build a chunk index")
         model_config = {key: value for key, value in indexing.items() if key != "type"}
-        manifest = build_late_chunking_faiss_index(
+        manifest = build_late_chunking_qdrant_index(
             args.store,
-            args.output,
+            retriever["collection_name"],
+            state_dir,
             model_config,
             retriever["encoder"],
-            factory=args.factory or retriever.get("factory", "Flat"),
-            train_size=args.train_size,
-            storage_dtype=args.storage_dtype,
-            languages=retriever.get("languages"),
+            **common,
         )
     else:
-        manifest = build_faiss_index(
+        manifest = build_qdrant_index(
             args.store,
             args.stage,
             retriever["encoder"],
-            args.output,
-            factory=args.factory or retriever.get("factory", "Flat"),
+            retriever["collection_name"],
+            state_dir=state_dir,
             batch_size=args.batch_size,
-            train_size=args.train_size,
-            storage_dtype=args.storage_dtype,
-            languages=retriever.get("languages"),
+            **common,
         )
     print(json.dumps(manifest, indent=2, ensure_ascii=False))
     return 0
@@ -173,17 +185,16 @@ def add_index_parsers(subparsers) -> None:
     prepare.add_argument("--store", required=True)
     prepare.set_defaults(handler=command_prepare)
 
-    faiss = commands.add_parser("build-faiss", help="Build a persistent dense FAISS index")
-    _add_config_flags(faiss)
-    faiss.add_argument("--store", required=True)
-    faiss.add_argument("--stage", required=True, choices=["document", "chunk"])
-    faiss.add_argument("--retriever", type=int, default=0)
-    faiss.add_argument("--output", required=True)
-    faiss.add_argument("--factory")
-    faiss.add_argument("--batch-size", type=int, default=256)
-    faiss.add_argument("--train-size", type=int, default=100_000)
-    faiss.add_argument("--storage-dtype", choices=["float16", "float32"], default="float16")
-    faiss.set_defaults(handler=command_build_faiss)
+    qdrant = commands.add_parser("build-qdrant", help="Stream a dense index to Qdrant")
+    _add_config_flags(qdrant)
+    qdrant.add_argument("--store", required=True)
+    qdrant.add_argument("--stage", required=True, choices=["document", "chunk"])
+    qdrant.add_argument("--retriever", type=int, default=0)
+    qdrant.add_argument("--state-dir")
+    qdrant.add_argument("--batch-size", type=int, default=256)
+    qdrant.add_argument("--local-path", help="local Qdrant path for development/smoke tests")
+    qdrant.add_argument("--recreate", action="store_true")
+    qdrant.set_defaults(handler=command_build_qdrant)
 
     numpy_index = commands.add_parser(
         "build-numpy", help="Build dependency-free exact index for smoke tests"

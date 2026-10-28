@@ -1,4 +1,3 @@
-import importlib.util
 import json
 import tempfile
 import unittest
@@ -98,11 +97,13 @@ class ArtifactStoreTest(unittest.TestCase):
         self.assertEqual(len({row["id"] for row in rows}), 2)
         self.assertFalse(output.with_suffix(".jsonl.state.json").exists())
 
-    @unittest.skipUnless(importlib.util.find_spec("faiss"), "faiss is an optional dependency")
-    def test_faiss_build_resumes_after_a_committed_batch(self):
-        from vibiomir.indexing.faiss import build_faiss_index
+    def test_qdrant_build_resumes_and_keeps_exact_chunk_payload(self):
+        from qdrant_client import QdrantClient
 
-        output = self.root / "faiss"
+        from vibiomir.indexing.qdrant import build_qdrant_index
+
+        state_dir = self.root / "qdrant-state"
+        local_path = self.root / "qdrant-data"
 
         class InterruptingEncoder:
             calls = 0
@@ -114,36 +115,78 @@ class ArtifactStoreTest(unittest.TestCase):
                 return np.ones((len(texts), 4), dtype=np.float32)
 
         with patch(
-            "vibiomir.indexing.faiss.build_text_encoder",
+            "vibiomir.indexing.qdrant.build_text_encoder",
             return_value=InterruptingEncoder(),
         ):
             with self.assertRaisesRegex(RuntimeError, "simulated interruption"):
-                build_faiss_index(
+                build_qdrant_index(
                     self.store_path,
                     "chunk",
                     {"type": "test"},
-                    output,
+                    "test_chunks",
+                    state_dir=state_dir,
                     batch_size=1,
-                    storage_dtype="float32",
+                    local_path=local_path,
+                    on_disk=False,
                 )
 
         class WorkingEncoder:
             def encode_documents(self, texts):
                 return np.ones((len(texts), 4), dtype=np.float32)
 
-        with patch("vibiomir.indexing.faiss.build_text_encoder", return_value=WorkingEncoder()):
-            manifest = build_faiss_index(
+        with patch("vibiomir.indexing.qdrant.build_text_encoder", return_value=WorkingEncoder()):
+            manifest = build_qdrant_index(
                 self.store_path,
                 "chunk",
                 {"type": "test"},
-                output,
+                "test_chunks",
+                state_dir=state_dir,
                 batch_size=1,
-                storage_dtype="float32",
+                local_path=local_path,
+                on_disk=False,
             )
-        ids = output.joinpath("ids.jsonl").read_text(encoding="utf-8").splitlines()
         self.assertEqual(manifest["items"], 2)
-        self.assertEqual(len(ids), 2)
-        self.assertFalse(output.joinpath("build_state.json").exists())
+        self.assertFalse(state_dir.joinpath("build_state.json").exists())
+        client = QdrantClient(path=str(local_path))
+        try:
+            points, _ = client.scroll(
+                collection_name="test_chunks", limit=10, with_payload=True
+            )
+            self.assertEqual(len(points), 2)
+            payloads = {point.payload["item_id"]: point.payload for point in points}
+            self.assertEqual(payloads["vi-1::c00000"]["chunk_text"], "đau đầu kéo dài")
+            self.assertEqual(payloads["en-1::c00000"]["doc_id"], "en-1")
+        finally:
+            client.close()
+
+    def test_qdrant_retriever_searches_local_collection(self):
+        from vibiomir.indexing.qdrant import build_qdrant_index
+        from vibiomir.retrieval.qdrant_index import QdrantIndexRetriever
+
+        state_dir = self.root / "search-state"
+        local_path = self.root / "search-qdrant"
+        encoder = {"type": "hash", "dimension": 32, "normalize": True}
+        build_qdrant_index(
+            self.store_path,
+            "chunk",
+            encoder,
+            "search_chunks",
+            state_dir=state_dir,
+            local_path=local_path,
+            on_disk=False,
+        )
+        retriever = QdrantIndexRetriever(
+            collection_name="search_chunks",
+            encoder=encoder,
+            local_path=local_path,
+        )
+        try:
+            retriever.fit([])
+            results = retriever.search("headache treatment", 1)
+            self.assertEqual(len(results), 1)
+            self.assertTrue(results[0].item_id.startswith("en-1:"))
+        finally:
+            retriever.close()
 
 
 if __name__ == "__main__":

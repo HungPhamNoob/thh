@@ -2,21 +2,24 @@
 
 ## 1. Kết luận về nơi lưu chunk
 
-BTC chỉ phát `query.parquet` và `links_corpus_vi_en_zh.parquet`; thể lệ không yêu cầu Qdrant
-Cloud. Project dùng local artifacts làm mặc định:
+BTC chỉ phát `query.parquet` và `links_corpus_vi_en_zh.parquet`; thể lệ không bắt buộc một vector
+database cụ thể. Project dùng Parquet + SQLite làm nguồn dữ liệu chuẩn và Qdrant làm dense vector
+store:
 
 ```text
 data/processed/corpus/                 parquet gốc sau ingest
 artifacts/full/<method>/store.sqlite   document, chunk gốc, offset, language
-artifacts/full/<method>/*_index/       Lucene / FAISS
+Qdrant Cloud collections              dense vectors + searchable payload
+artifacts/full/<method>/*_index/       Lucene learned-sparse/BM25
 artifacts/full/<method>/colbert/       PLAID index
 runs/<method>/submission.json          output đúng schema BTC
 runs/<method>/metrics.json             doc P/R/F2, chunk P/R/F2, final_score
 ```
 
-SQLite là nguồn duy nhất của `chunk_text` nộp bài. Lucene/FAISS/PLAID chỉ giữ representation
-để tìm kiếm và có thể build lại. Vì vậy không cần Qdrant; dùng Qdrant Cloud còn thêm chi phí,
-network latency và rủi ro lệch mapping id mà không đem lại lợi ích cho batch benchmark này.
+Qdrant payload cũng giữ `chunk_text`, `index_text`, `doc_id`, `item_id`, language và offsets để
+debug. Tuy nhiên writer luôn đọc exact text từ SQLite; nhờ vậy submission không phụ thuộc payload
+bị sửa và có thể kiểm tra substring với corpus. Collection có thể xóa/build lại từ
+Parquet + SQLite mà không phải crawl lại.
 
 ## 2. Cài đặt
 
@@ -30,6 +33,18 @@ pip install -e '.[dev,ingest,dense,transformers,bge,lucene,colbert]'
 
 Model nặng được import lười. BM25 cần extra `lucene`; dense cần `dense`; MedCPT,
 BMRetriever, Qwen3, SPLADE và Late Chunking cần `transformers`; BGE-M3 cần `bge`.
+
+Kết nối Qdrant Cloud bằng biến môi trường, không commit secret:
+
+```bash
+cp .env.example .env
+# sửa QDRANT_URL, QDRANT_API_KEY và QDRANT_COLLECTION_PREFIX trong .env
+```
+
+`build_method.sh` và `run_method.sh` tự nạp `.env` nếu file tồn tại. Có thể `export` ba biến đó
+trực tiếp trong scheduler/secret manager. API key nên được giới hạn quyền và rotate nếu từng bị
+lộ. Hướng dẫn chính thức: [Qdrant Cloud quickstart](https://qdrant.tech/documentation/cloud/quickstart-cloud/)
+và [database security](https://qdrant.tech/documentation/guides/security/).
 
 ## 3. Ingest
 
@@ -74,9 +89,10 @@ python scripts/build_method_indexes.py \
   --store artifacts/full/01_mgte_dense/store.sqlite
 ```
 
-Các config full đều chạy chunk-first để index tìm trên toàn corpus. Post-filter một FAISS top-k
-theo vài trăm document của cascade không bảo đảm recall; vì vậy không dùng cách đó cho so sánh
-chuẩn. Document score được aggregate từ chunk hits rồi chấm đồng thời với chunk score.
+Các config full đều chạy chunk-first để index tìm trên toàn corpus. Document score được aggregate
+từ chunk hits rồi chấm đồng thời với chunk score. Mỗi config dense có `collection_name` riêng;
+`QDRANT_COLLECTION_PREFIX` tách collection theo user/run. Nếu corpus/model thay đổi, dùng CLI
+`vibiomir index build-qdrant ... --recreate` hoặc xóa collection cũ có chủ đích.
 
 ## 5. Retrieve, validate và metric
 
@@ -99,10 +115,10 @@ Khi có `gold`, lệnh ghi:
 bash scripts/smoke_all.sh
 ```
 
-Smoke suite chạy unit test, parse/factory-check cả 9 config, build SQLite + persistent exact
-matrix index trên `examples/`, retrieve, evaluate và validate end-to-end. Nó cố ý dùng hash
-encoder nhỏ, không tải checkpoint nhiều GB. Việc tải model và encode 1,2M trang là production
-job GPU, không phải smoke test CI.
+Smoke suite chạy unit test, parse/factory-check cả 9 config, build SQLite + Qdrant local trên
+`examples/`, retrieve, evaluate và validate end-to-end. Nó kiểm tra cả resume, deterministic point
+ID và exact chunk payload nhưng dùng hash encoder nhỏ, không tải checkpoint nhiều GB. Việc tải
+model và encode 1,2M trang là production job GPU, không phải smoke test CI.
 
 ## 7. Chi phí và so sánh công bằng
 
@@ -112,3 +128,5 @@ job GPU, không phải smoke test CI.
   điểm tổng với model đa ngữ mà không ghi rõ khác biệt coverage.
 - BGE-M3 và Qwen3 có reranker riêng; muốn đo first-stage thuần thì override
   `--set reranker.type=none` và giữ cùng candidate/output k.
+- Ước lượng số chunk × dimension × 4 byte trước khi chọn cluster. Payload nguyên văn và HNSW còn
+  dùng thêm disk/RAM; free cluster thường không phù hợp toàn bộ hàng triệu chunk của nhiều model.

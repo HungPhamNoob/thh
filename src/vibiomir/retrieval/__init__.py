@@ -4,11 +4,11 @@ from .bm25 import BM25Retriever
 from .colbert import ColBERTv2Retriever
 from .dense import AsymmetricSentenceTransformerRetriever, SentenceTransformerRetriever
 from .factory import build_retriever
-from .faiss_index import FaissIndexRetriever
 from .impact import LuceneImpactRetriever
 from .late_chunking import LateChunkingRetriever
 from .numpy_index import NumpyIndexRetriever
 from .pyserini import PyseriniRetriever
+from .qdrant_index import QdrantIndexRetriever
 from .splade import SpladeRetriever
 from .transformers_dense import AsymmetricTransformersRetriever, TransformersEncoderRetriever
 
@@ -23,7 +23,7 @@ __all__ = [
     "AsymmetricTransformersRetriever",
     "build_retriever",
     "ColBERTv2Retriever",
-    "FaissIndexRetriever",
+    "QdrantIndexRetriever",
     "SpladeRetriever",
     "LateChunkingRetriever",
     "NumpyIndexRetriever",

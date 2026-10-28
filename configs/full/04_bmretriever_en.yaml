@@ -11,10 +11,13 @@ query:
 
 document_retrievers: []
 chunk_retrievers:
-  - type: faiss
+  - type: qdrant
     name: bmretriever_410m
-    index_dir: artifacts/full/04_bmretriever_en/chunk_index
-    factory: HNSW32
+    collection_name: bmretriever_410m_en_chunks
+    state_dir: artifacts/full/04_bmretriever_en/qdrant_state
+    distance: dot
+    on_disk: true
+    store_text_payload: true
     languages: [en]
     variant_ids: [translate_en]
     k: 1000

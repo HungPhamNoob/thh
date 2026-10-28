@@ -8,10 +8,10 @@ version = "0.1.0"
 description = "Configurable multilingual biomedical retrieval experiments for ViBioMIR/R2AI2026"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["PyYAML>=6.0", "numpy>=1.26"]
+dependencies = ["PyYAML>=6.0", "numpy>=1.26", "qdrant-client>=1.12,<2"]
 
 [project.optional-dependencies]
-dense = ["sentence-transformers>=3.0", "faiss-cpu>=1.8"]
+dense = ["sentence-transformers>=3.0"]
 bge = ["FlagEmbedding>=1.3", "huggingface_hub>=0.24"]
 lucene = ["pyserini>=0.44"]
 colbert = ["colbert-ai>=0.2.19", "huggingface_hub>=0.24"]

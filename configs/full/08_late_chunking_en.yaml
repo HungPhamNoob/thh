@@ -11,10 +11,13 @@ query:
 
 document_retrievers: []
 chunk_retrievers:
-  - type: faiss
+  - type: qdrant
     name: late_chunking
-    index_dir: artifacts/full/08_late_chunking_en/chunk_index
-    factory: HNSW32
+    collection_name: late_chunking_en_chunks
+    state_dir: artifacts/full/08_late_chunking_en/qdrant_state
+    distance: cosine
+    on_disk: true
+    store_text_payload: true
     languages: [en]
     variant_ids: [translate_en]
     k: 1000

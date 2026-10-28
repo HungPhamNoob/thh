@@ -9,8 +9,8 @@ import sys
 from pathlib import Path
 
 from vibiomir.config import load_config
-from vibiomir.indexing.faiss import build_faiss_index
-from vibiomir.indexing.late_chunking import build_late_chunking_faiss_index
+from vibiomir.indexing.late_chunking import build_late_chunking_qdrant_index
+from vibiomir.indexing.qdrant import build_qdrant_index
 from vibiomir.indexing.sparse import export_impact_vectors
 from vibiomir.indexing.store import ArtifactStore
 from vibiomir.models import resolve_hf_model
@@ -66,28 +66,40 @@ def _build_colbert(store_path: Path, stage: str, config: dict, nranks: int) -> N
 def _build_one(store_path: Path, stage: str, config: dict, nranks: int, threads: int) -> None:
     kind = config["type"]
     languages = config.get("languages")
-    if kind == "faiss":
+    if kind == "qdrant":
         indexing = config.get("indexing", {})
+        common = {
+            "languages": languages,
+            "distance": config.get("distance", "cosine"),
+            "on_disk": config.get("on_disk", True),
+            "store_text_payload": config.get("store_text_payload", True),
+            "url_env": config.get("url_env", "QDRANT_URL"),
+            "api_key_env": config.get("api_key_env", "QDRANT_API_KEY"),
+            "prefix_env": config.get("prefix_env", "QDRANT_COLLECTION_PREFIX"),
+            "local_path": config.get("local_path"),
+            "timeout": config.get("timeout", 60.0),
+            "prefer_grpc": config.get("prefer_grpc", False),
+        }
         if indexing.get("type") == "late_chunking":
             model_config = {key: value for key, value in indexing.items() if key != "type"}
-            manifest = build_late_chunking_faiss_index(
+            manifest = build_late_chunking_qdrant_index(
                 store_path,
-                config["index_dir"],
+                config["collection_name"],
+                config["state_dir"],
                 model_config,
                 config["encoder"],
-                factory=config.get("factory", "Flat"),
-                languages=languages,
+                **common,
             )
         else:
-            manifest = build_faiss_index(
+            manifest = build_qdrant_index(
                 store_path,
                 stage,
                 config["encoder"],
-                config["index_dir"],
-                factory=config.get("factory", "Flat"),
-                languages=languages,
+                config["collection_name"],
+                state_dir=config["state_dir"],
+                **common,
             )
-        print(f"Built FAISS index: {manifest}")
+        print(f"Built Qdrant collection: {manifest}")
         return
     if kind == "pyserini":
         index_dir = Path(config["index_dir"])

@@ -16,7 +16,6 @@ chunk_retrievers:
     query_prefix: "Given a medical question, retrieve relevant biomedical passages\nQuery: "
     document_prefix: "Represent this passage\npassage: "
     normalize_embeddings: false
-    faiss_factory: HNSW32
     k: 700
     weight: 1.3
 

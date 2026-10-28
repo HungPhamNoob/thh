@@ -44,9 +44,9 @@
 
 - In-memory BM25 chỉ dành cho smoke test và sample.
 - Full BM25 dùng `JsonCollection`; learned sparse dùng `JsonVectorCollection --impact --pretokenized`. Hai index không dùng chung generator.
-- Dense index dùng FAISS; HNSW dễ bắt đầu, IVF/PQ phù hợp khi RAM hạn chế. Vector và id map nằm cạnh manifest của index.
-- BGE-M3 full-corpus dùng dense FAISS + lexical impact để sinh candidate, sau đó gọi `compute_score` chính chủ cho dense/sparse/ColBERT trên candidate pool.
+- Dense index dùng một collection Qdrant riêng cho mỗi method/stage. Point UUID được suy ra ổn định từ collection + `item_id`; payload giữ id, language, offset, `index_text` và nguyên văn `chunk_text`.
+- BGE-M3 full-corpus dùng dense Qdrant + lexical impact để sinh candidate, sau đó gọi `compute_score` chính chủ cho dense/sparse/ColBERT trên candidate pool.
 - ColBERTv2 dùng `Indexer`/`Searcher` PLAID của repo tác giả; không gọi BGE multi-vector là ColBERTv2.
-- Local `ArtifactStore` (SQLite) giữ exact chunk text và offset. BTC không yêu cầu Qdrant; xem [`full_pipelines.md`](full_pipelines.md).
+- Local `ArtifactStore` (SQLite) vẫn là nguồn đối soát exact chunk text và offset; Qdrant là vector store/search backend. Xem [`full_pipelines.md`](full_pipelines.md).
 - Cache chunks và embeddings theo hash của config để không encode lại giữa ablation.
 

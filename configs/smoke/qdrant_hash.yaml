@@ -1,0 +1,25 @@
+extends: ../base.yaml
+
+document_retrievers: []
+chunk_retrievers:
+  - type: qdrant
+    name: smoke_qdrant_hash
+    collection_name: smoke_hash_chunks
+    state_dir: runs/smoke/qdrant_state
+    local_path: runs/smoke/qdrant_data
+    distance: cosine
+    on_disk: false
+    store_text_payload: true
+    k: 20
+    encoder:
+      type: hash
+      dimension: 64
+      normalize: true
+
+retrieval:
+  cascade: false
+  document_pool: 0
+  chunk_pool: 20
+
+chunking:
+  min_tokens: 1

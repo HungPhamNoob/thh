@@ -21,12 +21,10 @@ class SentenceTransformerRetriever(Retriever):
     document_prefix: str = ""
     query_prompt_name: str | None = None
     device: str | None = None
-    faiss_factory: str | None = None
     trust_remote_code: bool = False
     _model: object | None = field(default=None, init=False, repr=False)
     _items: list[SearchItem] = field(default_factory=list, init=False, repr=False)
     _embeddings: np.ndarray | None = field(default=None, init=False, repr=False)
-    _faiss_index: object | None = field(default=None, init=False, repr=False)
 
     def _load(self) -> object:
         if self._model is None:
@@ -54,18 +52,6 @@ class SentenceTransformerRetriever(Retriever):
             ),
             dtype=np.float32,
         )
-        if self.faiss_factory:
-            try:
-                import faiss
-            except ImportError as exc:
-                raise ImportError("Install `vibiomir-lab[dense]` for FAISS indexing") from exc
-            dimension = int(self._embeddings.shape[1])
-            self._faiss_index = faiss.index_factory(
-                dimension, self.faiss_factory, faiss.METRIC_INNER_PRODUCT
-            )
-            if not self._faiss_index.is_trained:
-                self._faiss_index.train(self._embeddings)
-            self._faiss_index.add(self._embeddings)
 
     def search(self, query: str, k: int, allowed_ids: set[str] | None = None) -> list[SearchResult]:
         if self._embeddings is None:
@@ -79,19 +65,6 @@ class SentenceTransformerRetriever(Retriever):
             )[0],
             dtype=np.float32,
         )
-        if self._faiss_index is not None and allowed_ids is None:
-            scores, indices = self._faiss_index.search(query_vector[None, :], k)
-            return [
-                SearchResult(
-                    item_id=self._items[int(index)].id,
-                    score=float(score),
-                    rank=rank,
-                    source=self.name,
-                    payload=self._items[int(index)].payload,
-                )
-                for rank, (score, index) in enumerate(zip(scores[0], indices[0]), 1)
-                if index >= 0
-            ]
         scores = self._embeddings @ query_vector
         candidates = (
             (float(score), index)
