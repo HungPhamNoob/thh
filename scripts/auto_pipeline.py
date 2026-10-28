@@ -58,6 +58,7 @@ FAILED_FILE = AUTO_ROOT / "FAILED"
 
 OFFICIAL_QUERIES = "data/raw/official/query.parquet"
 CORPUS_DIR = "data/processed/corpus"
+CRAWL_STATE_DB = "data/interim/crawl_state.sqlite"
 PUBMED_PARTS_DIR = REPO_ROOT / "data/interim/parts/pubmed"
 PUBMED_EXPECTED_PARTS = 1200  # ceil(240_000 PMIDs / 200 per efetch batch)
 STORE_V1A = "artifacts/full/store_v1a.sqlite"
@@ -240,8 +241,24 @@ SIDE_JOBS: dict[str, dict] = {
         "start_after": "prepare",
     },
     "vov": {
-        "cmd": VB + ["ingest", "crawl", "--domain", "vov.vn", "--links", "",
-                     "--workers", "1", "--log-file", "data/interim/logs/crawl_vov.log"],
+        # The vov process shares crawl_state.sqlite with the main crawl, which
+        # seeds it from the 1.2M-link manifest; wait for pending vov rows so a
+        # fresh daemon start cannot race the seeding and exit empty-handed.
+        "cmd": ["bash", "-c", f"""
+set -u
+cd "{REPO_ROOT}"
+for _ in $(seq 1 30); do
+  n=$("{PY}" -c 'import sqlite3, pathlib
+db = pathlib.Path("{CRAWL_STATE_DB}")
+print(0 if not db.exists() else sqlite3.connect(db).execute(
+    "SELECT COUNT(*) FROM pages WHERE domain=? AND status IN (?,?)",
+    ("vov.vn", "pending", "failed")).fetchone()[0])')
+  [ "$n" -gt 0 ] && break
+  sleep 60
+done
+exec "{PY}" -m vibiomir ingest crawl --domain vov.vn --links "" --workers 1 \\
+  --log-file data/interim/logs/crawl_vov.log
+"""],
         "start_after": "pilot_gate",
     },
     "wayback": {
