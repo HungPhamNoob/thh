@@ -9,6 +9,15 @@ fi
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 export PYTHONPATH="$repo_root/src${PYTHONPATH:+:$PYTHONPATH}"
+
+# Resolve interpreter: explicit $PYTHON, repo venv, then system python3.
+if [[ -n "${PYTHON:-}" ]]; then
+  python_bin="$PYTHON"
+elif [[ -x "$repo_root/.venv/bin/python" ]]; then
+  python_bin="$repo_root/.venv/bin/python"
+else
+  python_bin="python3"
+fi
 if [[ -f .env ]]; then
   set -a
   # shellcheck disable=SC1091
@@ -24,7 +33,7 @@ config="configs/full/${method}.yaml"
 run_dir="runs/${method}"
 mkdir -p "$run_dir"
 
-command=(python -m vibiomir indexed-run
+command=("$python_bin" -m vibiomir indexed-run
   --config "$config" --store "$store" --queries "$queries"
   --output "$run_dir/submission.json" --metrics-output "$run_dir/metrics.json")
 if [[ -n "$gold" ]]; then
@@ -32,4 +41,4 @@ if [[ -n "$gold" ]]; then
 fi
 "${command[@]}"
 
-python -m vibiomir validate --submission "$run_dir/submission.json"
+"$python_bin" -m vibiomir validate --submission "$run_dir/submission.json"

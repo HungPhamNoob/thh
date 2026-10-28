@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+
+# Resolve interpreter: explicit $PYTHON, repo venv, then system python3.
+if [[ -n "${PYTHON:-}" ]]; then
+  python_bin="$PYTHON"
+elif [[ -x "$repo_root/.venv/bin/python" ]]; then
+  python_bin="$repo_root/.venv/bin/python"
+else
+  python_bin="python3"
+fi
+
 if [[ $# -ne 2 ]]; then
   echo "Usage: $0 <json-vector-file-or-directory> <index-directory>" >&2
   exit 2
@@ -16,7 +27,7 @@ if [[ -f "$input_path" ]]; then
   trap 'rm -rf "$cleanup_dir"' EXIT
 fi
 
-python -m pyserini.index.lucene \
+"$python_bin" -m pyserini.index.lucene \
   --collection JsonVectorCollection \
   --input "$input_path" \
   --index "$index_path" \
