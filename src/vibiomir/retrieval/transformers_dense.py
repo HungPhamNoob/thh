@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from vibiomir.gpu import apply_gpu_memory_fraction
 from vibiomir.schemas import SearchItem, SearchResult
 
 from .base import Retriever
@@ -44,6 +45,7 @@ class TransformersEncoderRetriever(Retriever):
             raise ImportError(
                 "Install `vibiomir-lab[transformers]` for HF encoder retrieval"
             ) from exc
+        apply_gpu_memory_fraction()
         tokenizer = AutoTokenizer.from_pretrained(
             model_name,
             trust_remote_code=self.trust_remote_code,

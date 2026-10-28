@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from vibiomir.gpu import apply_gpu_memory_fraction
 from vibiomir.models import resolve_hf_model
 from vibiomir.schemas import SearchItem, SearchResult
 
@@ -34,6 +35,7 @@ class BGEM3MultiVectorReranker(Reranker):
                 from FlagEmbedding import BGEM3FlagModel
             except ImportError as exc:
                 raise ImportError("Install `vibiomir-lab[bge]` for BGE-M3 reranking") from exc
+            apply_gpu_memory_fraction()
             self._model = BGEM3FlagModel(
                 resolve_hf_model(self.model_name, self.revision),
                 use_fp16=self.use_fp16,

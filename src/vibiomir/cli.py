@@ -16,8 +16,10 @@ from vibiomir.io import (
     load_queries,
     load_submission,
     validate_submission,
+    validate_submission_streaming,
     write_chunks_jsonl,
     write_submission,
+    write_submission_zip,
 )
 from vibiomir.pipeline import SearchPipeline
 
@@ -63,14 +65,33 @@ def command_evaluate(args: argparse.Namespace) -> int:
 
 
 def command_validate(args: argparse.Namespace) -> int:
-    documents = load_documents(args.corpus) if args.corpus else None
-    errors = validate_submission(load_submission(args.submission), documents)
+    rows = load_submission(args.submission)
+    if args.corpus:
+        errors = validate_submission_streaming(rows, args.corpus)
+    else:
+        errors = validate_submission(rows)
     if errors:
         print("Submission validation failed:")
         for error in errors:
             print(f"- {error}")
         return 1
     print("Submission is valid")
+    return 0
+
+
+def command_package(args: argparse.Namespace) -> int:
+    rows = load_submission(args.submission)
+    if args.corpus:
+        errors = validate_submission_streaming(rows, args.corpus)
+    else:
+        errors = validate_submission(rows)
+    if errors:
+        print("Submission validation failed; no ZIP written:")
+        for error in errors:
+            print(f"- {error}")
+        return 1
+    zip_path = write_submission_zip(args.submission, args.output)
+    print(f"Validated {len(rows)} predictions; wrote {zip_path}")
     return 0
 
 
@@ -114,6 +135,14 @@ def build_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument("--submission", required=True)
     validate_parser.add_argument("--corpus")
     validate_parser.set_defaults(handler=command_validate)
+
+    package_parser = subparsers.add_parser(
+        "package", help="Validate a submission and zip it for leaderboard upload"
+    )
+    package_parser.add_argument("--submission", required=True)
+    package_parser.add_argument("--corpus", help="corpus for streaming provenance validation")
+    package_parser.add_argument("--output", required=True, help="output ZIP path")
+    package_parser.set_defaults(handler=command_package)
 
     show_parser = subparsers.add_parser(
         "show-config", help="Render inherited config plus overrides"

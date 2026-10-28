@@ -1,0 +1,36 @@
+extends: ./01_mgte_dense.yaml
+
+# Auto-pipeline variant of 01_mgte_dense for the 28-31/10 run on the RTX 5060
+# laptop with a Qdrant Cloud cluster:
+# - store_text_payload=false keeps the cloud collection ~10x smaller; the
+#   submission writer reads exact chunk text from the local SQLite store, so
+#   payloads are debug-only (docs/full_pipelines.md section 1).
+# - separate collection/state so resume validation never mixes payload modes.
+# - encoder/reranker batches sized for VIBIOMIR_GPU_MEM_FRACTION=0.4 (~3.2 GB).
+chunk_retrievers:
+  - type: qdrant
+    name: mgte_dense
+    collection_name: mgte_dense_auto_chunks
+    state_dir: artifacts/full/01_mgte_dense_auto/qdrant_state
+    distance: cosine
+    on_disk: true
+    store_text_payload: false
+    k: 1000
+    weight: 1.0
+    encoder:
+      type: sentence_transformer
+      model_name: Alibaba-NLP/gte-multilingual-base
+      revision: 9bbca17d9273fd0d03d5725c7a4b0f6b45142062
+      trust_remote_code: true
+      normalize: true
+      batch_size: 48
+
+reranker:
+  type: hf_sequence_classifier
+  model_name: Alibaba-NLP/gte-multilingual-reranker-base
+  revision: 8215cf04918ba6f7b6a62bb44238ce2953d8831c
+  trust_remote_code: true
+  max_length: 1024
+  batch_size: 8
+  candidate_k: 250
+  output_k: 180

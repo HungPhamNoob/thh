@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from vibiomir.gpu import apply_gpu_memory_fraction
 from vibiomir.schemas import SearchItem, SearchResult
 
 from .base import Reranker
@@ -37,6 +38,7 @@ class Qwen3Reranker(Reranker):
                 raise ImportError(
                     "Install `vibiomir-lab[transformers]` for Qwen3 reranking"
                 ) from exc
+            apply_gpu_memory_fraction()
             self._tokenizer = AutoTokenizer.from_pretrained(
                 self.model_name, padding_side="left", revision=self.revision
             )

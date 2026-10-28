@@ -10,7 +10,7 @@ from vibiomir.retrieval import build_retriever
 class FullConfigTest(unittest.TestCase):
     def test_every_full_pipeline_has_constructible_components(self):
         paths = sorted(Path("configs/full").glob("*.yaml"))
-        self.assertEqual(len(paths), 9)
+        self.assertEqual(len(paths), 10)
         for path in paths:
             with self.subTest(config=path.name):
                 config = load_config(path)

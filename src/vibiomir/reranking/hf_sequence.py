@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from vibiomir.gpu import apply_gpu_memory_fraction
 from vibiomir.schemas import SearchItem, SearchResult
 
 from .base import Reranker
@@ -30,6 +31,7 @@ class HFSequenceClassificationReranker(Reranker):
                 from transformers import AutoModelForSequenceClassification, AutoTokenizer
             except ImportError as exc:
                 raise ImportError("Install `vibiomir-lab[transformers]` for HF reranking") from exc
+            apply_gpu_memory_fraction()
             self._tokenizer = AutoTokenizer.from_pretrained(
                 self.model_name,
                 trust_remote_code=self.trust_remote_code,

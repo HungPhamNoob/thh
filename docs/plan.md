@@ -19,7 +19,7 @@ Bản lập ngày Chủ nhật 25/10/2026. Luật thi và số liệu nằm tron
 | Repo | Framework ablation đủ module (chunk, query, retrieval, fusion, rerank, aggregation, selection), nhưng chỉ chạy in-memory trên dữ liệu mẫu. Chưa có crawl/ingest, chưa có runner cho toàn corpus. |
 | Evaluator | Lệch luật ở ba điểm: ghép chunk 1–1; tính F2 từ P/R trung bình thay vì trung bình F2 từng query; chỉ xét LCS/\|g\|, thiếu điều kiện LCS/\|c\| ≥ 0,4 mà BTC bổ sung ngày 25/10 (`competition.md` §3). |
 | Dữ liệu | Chưa tải. BTC chỉ phát URL. Đã có ít nhất hai bản crawl công khai trên HF map đúng id chính thức (`data_ingestion.md` §2.2). |
-| Máy local | i5-13500H, 16 GB RAM, không GPU NVIDIA, ổ D còn ~26 GB trống, Java 17. Đủ cho crawl và BM25; encode embedding và rerank phải chạy GPU ngoài (Kaggle 2×T4 30 giờ/tuần/tài khoản, Colab hoặc máy thuê). |
+| Máy local | i5-13500H, 16 GB RAM, không GPU NVIDIA, ổ D còn ~26 GB trống, Java 17. Đủ cho crawl và BM25; encode embedding và rerank phải chạy GPU ngoài (Kaggle 2×T4 30 giờ/tuần/tài khoản, Colab hoặc máy thuê). **Cập nhật 28/10**: chuyển sang laptop Linux RTX 5060 8 GB (Java 21, ~30 GB disk trống), encode/rerank chạy local với cap 40% VRAM (`docs/automation.md`); toàn bộ chuỗi crawl→index→submission chạy tự động qua `scripts/auto_pipeline.py`. |
 | GitHub | Tài khoản `HuyHoangTran05` chỉ có quyền read trên `HungPhamNoob/thh`, nên Hưng cần thêm làm collaborator. |
 | Leaderboard | Top 1: 0,4871. Baseline BM25 của BTC: 0,3764, nhưng doc F2 0,5587 (cao nhất bảng). Các điểm này chấm theo luật chunk cũ; từ 25/10 kết quả chấm chỉ còn điểm tổng, không còn chi tiết theo query. |
 
@@ -79,16 +79,16 @@ Trạng thái: `todo` / `doing` / `done`. Ưu tiên: P0 > P1 > P2.
 | Mã | Ưu tiên | Việc | Tiêu chí xong | Trạng thái |
 |---|---|---|---|---|
 | E1 | P0 | Sửa `evaluation/official.py` cho khớp luật: cặp (c, g) khớp khi **cả** LCS/\|g\| ≥ 0,4 **và** LCS/\|c\| ≥ 0,4; chunk nộp đúng nếu khớp **bất kỳ** chunk vàng nào (không ghép 1–1); recall = số chunk vàng có ít nhất một chunk nộp khớp; F2 tính theo từng query rồi trung bình; `final_score = (doc_f2 + chunk_f2)/2`. Sửa `test_one_to_one_chunk_matching` theo luật mới; thêm test có số liệu tính tay, gồm ca chunk nộp quá dài (chứa trọn chunk vàng nhưng dài hơn 2,5 lần) phải bị tính sai. | Test mới pass; README/docs ghi đúng tên metric | done |
-| E2 | P0 | `vibiomir package`: validate (đủ 1.200 id, id là int, doc id thuộc corpus, `chunk_text` là substring, không rỗng), tuỳ chọn kiểu doc id `int\|str`, nén ZIP **một file ở gốc**. | ZIP mở ra đúng 1 file; validator bắt được lỗi cố ý | todo |
+| E2 | P0 | `vibiomir package`: validate (đủ 1.200 id, id là int, doc id thuộc corpus, `chunk_text` là substring, không rỗng), tuỳ chọn kiểu doc id `int\|str`, nén ZIP **một file ở gốc**. | ZIP mở ra đúng 1 file; validator bắt được lỗi cố ý | done (28/10): `vibiomir package --submission … --corpus … --output …` validate streaming cả full corpus (không nạp hết vào RAM) rồi nén ZIP 1 file ở gốc; validate với lỗi cố ý có test (`tests/test_package.py`). Chưa làm cờ `int\|str` vì writer đã chuẩn hoá id số. |
 | E3 | P0 | Dev set: (a) silver từ trang hỏi đáp chứa gần nguyên văn query (BM25 điểm vượt trội, người kiểm tra lại); (b) 50–100 query gán tay doc + chunk bằng script gợi ý ứng viên; (c) tuỳ chọn: query tổng hợp kiểu GPL bằng LLM mở. Định dạng giống `examples/gold.json`. | ≥ 100 query có nhãn, ghi rõ nguồn từng nhãn | todo |
-| E4 | P0 | Nhật ký: `docs/submission_log.md` (mỗi lần nộp một dòng) + thư mục `runs/<ngày>_<tên>/` lưu config đã resolve, commit, metric. | Mọi bài nộp đều tra ngược được ra config + commit | todo |
+| E4 | P0 | Nhật ký: `docs/submission_log.md` (mỗi lần nộp một dòng) + thư mục `runs/<ngày>_<tên>/` lưu config đã resolve, commit, metric. | Mọi bài nộp đều tra ngược được ra config + commit | doing (28/10): đã tạo `docs/submission_log.md`; auto pipeline tự ghi `run_info.json` (commit, config) + `config_resolved.yaml` cạnh mỗi submission |
 | E5 | P1 | Phân tích lỗi: tách theo ngôn ngữ doc, độ dài query; phân loại không có kết quả / sai doc / đúng doc sai chunk / chunk quá ngắn. | Báo cáo ngắn sau mỗi thay đổi lớn | todo |
 
 ### R – retrieval
 
 | Mã | Ưu tiên | Việc | Tiêu chí xong | Trạng thái |
 |---|---|---|---|---|
-| R0 | P0 | Runner cho toàn corpus, không nạp hết vào RAM: local SQLite artifact store + persistent Qdrant/Lucene/PLAID indexes, chunk-first hoặc cascade, selection → submission. | Code và smoke test xong; benchmark 1.200 query/RAM trên corpus v1 còn chờ artifact thật | implemented; benchmark pending |
+| R0 | P0 | Runner cho toàn corpus, không nạp hết vào RAM: local SQLite artifact store + persistent Qdrant/Lucene/PLAID indexes, chunk-first hoặc cascade, selection → submission. | Code và smoke test xong; benchmark 1.200 query/RAM trên corpus v1 còn chờ artifact thật | implemented; 28/10: chuỗi crawl→merge→store→Lucene/Qdrant→run→package chạy unattended qua `scripts/auto_pipeline.py` (`docs/automation.md`), benchmark chờ artifact thật |
 | R1 | P0 | Query dài nhiều ý: tách câu/ý, rút keyphrase y khoa (LLM mở, ví dụ Qwen2.5-7B-Instruct, chế độ `keywords` đã có), giữ query gốc làm một variant. | Cải thiện trên dev; không giảm doc precision | todo |
 | R2 | P1 | Nhận diện trang nguồn gần trùng query (trang hỏi đáp chứa câu hỏi): điểm BM25 top-1 vượt xa top-2 → coi là doc chắc chắn. | Đo precision của luật trên dev | todo |
 | R3 | P0 | Xuyên ngữ: dịch query VI→EN/ZH (NLLB-200 hoặc LLM mở ≤ 15B), BM25 trên index EN (PubMed) và ZH (bigram CJK); tuỳ chọn MedCPT cho nhánh EN. | Recall doc EN/ZH tăng trên dev | todo |
