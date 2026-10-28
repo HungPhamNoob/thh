@@ -103,6 +103,7 @@ Thêm một component mới (chunker, retriever, reranker, …):
 - Commit nhỏ, mỗi commit một ý, message tiếng Anh theo Conventional Commits: `feat(ingest): add PubMed E-utilities fetcher`, `fix(evaluation): macro-average per-query F2`, `docs: …`, `test: …`, `chore: …`.
 - **Không thêm trailer `Co-Authored-By`, dòng "Generated with …" hoặc bất kỳ ghi chú AI nào vào commit message hay mô tả PR.**
 - Chạy test trước khi commit. Không force-push lên `main` hoặc `develop`.
+- CI (`.github/workflows/ci.yml`, GitHub Actions) chạy trên mọi PR và push vào `develop`/`main`, với Python 3.10 và 3.13: cài `.[ingest,dev]`, chạy `ruff check src tests` rồi `bash scripts/smoke_all.sh` (unit test, cú pháp script, factory của `configs/full`, smoke Qdrant trên `examples/`). CI phải xanh trước khi merge. CI không có GPU, không có secret, và test không được gọi mạng hay tải model (mục 5).
 - `MANIFEST.sha256` là bản ghi hash của codebase ban đầu (commit `af2eec9`); không có code nào đọc file này. Đừng sửa tay.
 
 ## 8. Phân vai
