@@ -11,6 +11,12 @@ chunk_retrievers:
     on_disk: true
     # Exact text remains in SQLite; Qdrant stores the deterministic store_key.
     store_text_payload: false
+    # gRPC sends binary vectors (~5x smaller than REST JSON) and 4 parallel
+    # upsert streams hide the ~800 ms RTT to the cluster; the checkpoint
+    # offset still advances strictly in order, so resume stays exact.
+    prefer_grpc: true
+    upload_workers: 4
+    timeout: 300
     k: 1000
     weight: 1.0
     encoder:

@@ -79,6 +79,7 @@ def _build_one(store_path: Path, stage: str, config: dict, nranks: int, threads:
             "local_path": config.get("local_path"),
             "timeout": config.get("timeout", 60.0),
             "prefer_grpc": config.get("prefer_grpc", False),
+            "upload_workers": config.get("upload_workers", 1),
         }
         if indexing.get("type") == "late_chunking":
             model_config = {key: value for key, value in indexing.items() if key != "type"}

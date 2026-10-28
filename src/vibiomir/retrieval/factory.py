@@ -34,6 +34,7 @@ def build_retriever(config: dict[str, Any]) -> Retriever:
         "on_disk",
         "store_text_payload",
         "recreate",
+        "upload_workers",
     }
     params = {k: v for k, v in config.items() if k not in controls}
     if name == "bm25":

@@ -384,6 +384,151 @@ class ArtifactStoreTest(unittest.TestCase):
         finally:
             retriever.close()
 
+    def _parallel_store(self):
+        """Ten single-chunk documents for parallel-upload tests."""
+        path = self.root / "parallel-store.sqlite"
+        documents = [
+            Document(id=f"vi-{index}", text=f"nội dung tài liệu {index}", language="vi")
+            for index in range(1, 11)
+        ]
+        chunker = build_chunker({"type": "fixed", "size": 20, "overlap": 0, "min_tokens": 1})
+        prepare_store(documents, chunker, path)
+        return path
+
+    def test_qdrant_parallel_upload_upserts_every_point_once(self):
+        from vibiomir.indexing import qdrant as qdrant_module
+
+        store_path = self._parallel_store()
+        client = _FakeQdrantClient(jitter=True)
+        encoder = _ConstantEncoder()
+        with (
+            patch.object(qdrant_module, "build_text_encoder", return_value=encoder),
+            patch.object(qdrant_module, "make_qdrant_client", return_value=client),
+        ):
+            manifest = qdrant_module.build_qdrant_index(
+                store_path,
+                "chunk",
+                {"type": "test"},
+                "parallel_chunks",
+                state_dir=self.root / "parallel-state",
+                batch_size=1,
+                upload_workers=4,
+                on_disk=False,
+            )
+        self.assertEqual(manifest["items"], 10)
+        self.assertEqual(manifest["verification"]["point_count"], 10)
+        self.assertEqual(len(client.points), 10)
+        self.assertEqual(client.calls, 10)
+        self.assertFalse((self.root / "parallel-state" / "build_state.json").exists())
+
+    def test_qdrant_parallel_upload_checkpoints_contiguously_and_resumes(self):
+        from vibiomir.indexing import qdrant as qdrant_module
+
+        store_path = self._parallel_store()
+        with ArtifactStore(store_path) as store:
+            item_ids = [item.id for item in next(store.iter_items("chunk", batch_size=100))]
+        poison = item_ids[len(item_ids) // 2]
+        client = _FakeQdrantClient(jitter=True, fail_ids={poison})
+        state_dir = self.root / "resume-state"
+        state_path = state_dir / "build_state.json"
+        with (
+            patch.object(qdrant_module, "build_text_encoder", return_value=_ConstantEncoder()),
+            patch.object(qdrant_module, "make_qdrant_client", return_value=client),
+            patch.object(qdrant_module.time, "sleep"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "simulated upsert failure"):
+                qdrant_module.build_qdrant_index(
+                    store_path,
+                    "chunk",
+                    {"type": "test"},
+                    "parallel_chunks",
+                    state_dir=state_dir,
+                    batch_size=1,
+                    upload_workers=4,
+                    on_disk=False,
+                )
+            self.assertTrue(state_path.exists())
+            checkpoint = json.loads(state_path.read_text())
+            self.assertLess(checkpoint["offset"], 10)
+            # The poisoned batch must not be acknowledged into the offset.
+            self.assertLessEqual(checkpoint["offset"], item_ids.index(poison))
+
+            client.fail_ids.clear()
+            manifest = qdrant_module.build_qdrant_index(
+                store_path,
+                "chunk",
+                {"type": "test"},
+                "parallel_chunks",
+                state_dir=state_dir,
+                batch_size=1,
+                upload_workers=4,
+                on_disk=False,
+            )
+        self.assertEqual(manifest["verification"]["point_count"], 10)
+        self.assertEqual(len(client.points), 10)  # deterministic ids: no duplicates
+        self.assertFalse(state_path.exists())
+
+
+class _ConstantEncoder:
+    def encode_documents(self, texts):
+        return np.ones((len(texts), 4), dtype=np.float32)
+
+
+class _FakeQdrantClient:
+    """Thread-safe stand-in exercising the parallel upload path without a server."""
+
+    def __init__(self, jitter: bool = False, fail_ids=()):
+        import threading
+        from types import SimpleNamespace
+
+        self._lock = threading.Lock()
+        self._SimpleNamespace = SimpleNamespace
+        self.points: dict[str, tuple[list, dict]] = {}
+        self.fail_ids = set(fail_ids)
+        self.calls = 0
+        self.jitter = jitter
+
+    def collection_exists(self, collection_name):
+        return False
+
+    def create_collection(self, collection_name, vectors_config):
+        return True
+
+    def upsert(self, collection_name, points, wait):
+        import time as time_module
+
+        with self._lock:
+            self.calls += 1
+            call = self.calls
+        if self.jitter:
+            time_module.sleep(0.01 * (call % 4))
+        for point in points:
+            if point.payload.get("item_id") in self.fail_ids:
+                raise RuntimeError(f"simulated upsert failure for {point.payload['item_id']}")
+        with self._lock:
+            for point in points:
+                self.points[point.id] = (list(point.vector), dict(point.payload))
+        return True
+
+    def count(self, collection_name, exact):
+        with self._lock:
+            return self._SimpleNamespace(count=len(self.points))
+
+    def scroll(self, collection_name, limit, with_payload, with_vectors):
+        with self._lock:
+            point_id = next(iter(self.points))
+            vector, payload = self.points[point_id]
+        return [self._SimpleNamespace(id=point_id, payload=payload, vector=vector)], None
+
+    def query_points(self, collection_name, query, limit, with_payload):
+        with self._lock:
+            point_id = next(iter(self.points))
+            payload = self.points[point_id][1]
+        return self._SimpleNamespace(points=[self._SimpleNamespace(payload=payload)])
+
+    def close(self):
+        pass
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,7 @@ import os
 import time
 import uuid
 from collections.abc import Iterable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -155,7 +156,14 @@ def _upsert_batch(
     )
 
 
-def _retry(fn, *, operation: str, attempts: int = 5, base_delay: float = 1.0):
+def _retry(
+    fn,
+    *,
+    operation: str,
+    attempts: int = 8,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+):
     """Retry transient Qdrant operations with bounded exponential backoff."""
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
@@ -165,7 +173,7 @@ def _retry(fn, *, operation: str, attempts: int = 5, base_delay: float = 1.0):
             last_error = exc
             if attempt == attempts:
                 break
-            delay = min(15.0, base_delay * (2 ** (attempt - 1)))
+            delay = min(max_delay, base_delay * (2 ** (attempt - 1)))
             log.warning(
                 "Qdrant %s failed (%d/%d); retrying in %.1fs: %s",
                 operation,
@@ -264,8 +272,16 @@ def build_qdrant_index(
     local_path: str | Path | None = None,
     timeout: float = 60.0,
     prefer_grpc: bool = False,
+    upload_workers: int = 1,
 ) -> dict[str, Any]:
-    """Stream embeddings to Qdrant with idempotent IDs and resumable local state."""
+    """Stream embeddings to Qdrant with idempotent IDs and resumable local state.
+
+    ``upload_workers`` > 1 overlaps the network round-trips of consecutive
+    upsert batches (the GPU keeps encoding while uploads are in flight).  The
+    checkpointed offset still advances strictly in submission order, so a
+    resume only replays batches whose acknowledgement was not durably
+    recorded; deterministic point IDs make replays idempotent.
+    """
     collection = resolve_collection_name(collection_name, prefix_env)
     state_root = Path(state_dir)
     state_root.mkdir(parents=True, exist_ok=True)
@@ -329,40 +345,105 @@ def build_qdrant_index(
                     offset = 0
 
             seen = 0
-            for items in store.iter_items(stage, batch_size=batch_size, languages=language_list):
-                batch_end = seen + len(items)
-                if batch_end <= offset:
-                    seen = batch_end
-                    continue
-                remaining = items[max(0, offset - seen) :]
-                vectors = np.asarray(
-                    encoder.encode_documents([item.text for item in remaining]),
-                    dtype=np.float32,
+            base_offset = offset
+            sizes: dict[int, int] = {}
+            futures: dict[int, Future] = {}
+            done: set[int] = set()
+            failed: set[int] = set()
+            next_ack = 0
+            acked_items = 0
+            max_in_flight = max(2 * int(upload_workers), 2)
+            executor = (
+                ThreadPoolExecutor(max_workers=upload_workers) if upload_workers > 1 else None
+            )
+
+            def _checkpoint() -> None:
+                _write_json(
+                    state_path,
+                    {**expected, "dimension": dimension, "offset": base_offset + acked_items},
                 )
-                if vectors.ndim != 2 or len(vectors) != len(remaining):
-                    raise ValueError("Encoder returned an invalid document vector matrix")
-                if not dimension:
-                    dimension = int(vectors.shape[1])
-                    ensure_collection(
-                        client,
-                        collection,
-                        dimension,
-                        distance=distance,
-                        recreate=recreate,
-                        on_disk=on_disk,
+
+            def _harvest(block: bool, raise_errors: bool = True) -> None:
+                nonlocal next_ack, acked_items
+                if executor is None:
+                    return
+                if block:
+                    target = futures.get(next_ack)
+                    if target is not None and not target.done():
+                        wait([target])
+                error: Exception | None = None
+                for index, future in futures.items():
+                    if index in done or index in failed or not future.done():
+                        continue
+                    if future.cancelled():
+                        failed.add(index)
+                        continue
+                    exception = future.exception()
+                    if exception is not None:
+                        failed.add(index)
+                        if error is None:
+                            error = exception
+                        continue
+                    done.add(index)
+                while next_ack in done:
+                    acked_items += sizes[next_ack]
+                    next_ack += 1
+                _checkpoint()
+                if error is not None and raise_errors:
+                    raise error
+
+            try:
+                for items in store.iter_items(stage, batch_size=batch_size, languages=language_list):
+                    batch_end = seen + len(items)
+                    if batch_end <= base_offset:
+                        seen = batch_end
+                        continue
+                    remaining = items[max(0, base_offset - seen) :]
+                    vectors = np.asarray(
+                        encoder.encode_documents([item.text for item in remaining]),
+                        dtype=np.float32,
                     )
-                elif int(vectors.shape[1]) != dimension:
-                    raise ValueError("Encoder dimension changed during indexing")
-                _upsert_batch(
-                    client,
-                    collection,
-                    vectors,
-                    remaining,
-                    _payloads(store, stage, remaining, store_text_payload),
-                )
-                offset += len(remaining)
-                seen = batch_end
-                _write_json(state_path, {**expected, "dimension": dimension, "offset": offset})
+                    if vectors.ndim != 2 or len(vectors) != len(remaining):
+                        raise ValueError("Encoder returned an invalid document vector matrix")
+                    if not dimension:
+                        dimension = int(vectors.shape[1])
+                        ensure_collection(
+                            client,
+                            collection,
+                            dimension,
+                            distance=distance,
+                            recreate=recreate,
+                            on_disk=on_disk,
+                        )
+                    elif int(vectors.shape[1]) != dimension:
+                        raise ValueError("Encoder dimension changed during indexing")
+                    # Materialise payloads on the producer thread: SQLite must
+                    # not be touched from upload workers.
+                    payloads = list(_payloads(store, stage, remaining, store_text_payload))
+                    if executor is None:
+                        _upsert_batch(client, collection, vectors, remaining, payloads)
+                        acked_items += len(remaining)
+                        _checkpoint()
+                    else:
+                        while len(futures) - len(done) - len(failed) >= max_in_flight:
+                            _harvest(block=True)
+                        index = len(futures)
+                        sizes[index] = len(remaining)
+                        futures[index] = executor.submit(
+                            _upsert_batch, client, collection, vectors, remaining, payloads
+                        )
+                        _harvest(block=False)
+                    seen = batch_end
+                if executor is not None:
+                    while next_ack < len(futures):
+                        _harvest(block=True)
+            finally:
+                if executor is not None:
+                    for future in futures.values():
+                        future.cancel()
+                    executor.shutdown(wait=True)
+                    _harvest(block=False, raise_errors=False)
+            offset = base_offset + acked_items
             if offset != total:
                 raise RuntimeError(f"Encoded {offset} items but store reported {total}")
 

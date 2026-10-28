@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -37,8 +38,13 @@ def build_late_chunking_qdrant_index(
     local_path: str | Path | None = None,
     timeout: float = 60.0,
     prefer_grpc: bool = False,
+    upload_workers: int = 1,
 ) -> dict[str, Any]:
     """Encode each long document once and stream pooled chunk vectors to Qdrant."""
+    if upload_workers > 1:
+        logging.getLogger(__name__).warning(
+            "Late chunking uploads serially; upload_workers=%d is ignored", upload_workers
+        )
     collection = resolve_collection_name(collection_name, prefix_env)
     state_root = Path(state_dir)
     state_root.mkdir(parents=True, exist_ok=True)

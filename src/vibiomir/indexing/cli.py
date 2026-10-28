@@ -305,6 +305,11 @@ def command_build_qdrant(args: argparse.Namespace) -> int:
         "local_path": args.local_path or retriever.get("local_path"),
         "timeout": retriever.get("timeout", 60.0),
         "prefer_grpc": retriever.get("prefer_grpc", False),
+        "upload_workers": (
+            args.upload_workers
+            if args.upload_workers is not None
+            else retriever.get("upload_workers", 1)
+        ),
     }
     indexing = retriever.get("indexing", {})
     if indexing.get("type") == "late_chunking":
@@ -526,6 +531,12 @@ def add_index_parsers(subparsers) -> None:
     qdrant.add_argument("--batch-size", type=int, default=256)
     qdrant.add_argument("--local-path", help="local Qdrant path for development/smoke tests")
     qdrant.add_argument("--recreate", action="store_true")
+    qdrant.add_argument(
+        "--upload-workers",
+        type=int,
+        default=None,
+        help="parallel upsert streams (default: retriever config upload_workers or 1)",
+    )
     qdrant.set_defaults(handler=command_build_qdrant)
 
     numpy_index = commands.add_parser(
