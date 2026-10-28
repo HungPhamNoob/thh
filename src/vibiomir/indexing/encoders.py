@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 
+from vibiomir.gpu import apply_gpu_memory_fraction
 from vibiomir.models import resolve_hf_model
 
 
@@ -64,6 +65,7 @@ class SentenceTransformerTextEncoder(TextEncoder):
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:
             raise ImportError("Install `vibiomir-lab[dense]` for dense indexing") from exc
+        apply_gpu_memory_fraction()
         self.model = SentenceTransformer(
             model_name,
             device=device,
@@ -128,6 +130,7 @@ class TransformersTextEncoder(TextEncoder):
             from transformers import AutoModel, AutoTokenizer
         except ImportError as exc:
             raise ImportError("Install `vibiomir-lab[transformers]` for HF indexing") from exc
+        apply_gpu_memory_fraction()
         self.torch = torch
         self.auto_model = AutoModel
         self.auto_tokenizer = AutoTokenizer
@@ -266,6 +269,7 @@ class BGEM3DenseTextEncoder(TextEncoder):
             from FlagEmbedding import BGEM3FlagModel
         except ImportError as exc:
             raise ImportError("Install `vibiomir-lab[bge]` for BGE-M3 indexing") from exc
+        apply_gpu_memory_fraction()
         self.model = BGEM3FlagModel(resolve_hf_model(model_name, revision), use_fp16=use_fp16)
         self.batch_size = batch_size
         self.max_length = max_length

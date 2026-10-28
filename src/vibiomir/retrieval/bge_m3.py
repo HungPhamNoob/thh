@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from vibiomir.gpu import apply_gpu_memory_fraction
 from vibiomir.schemas import SearchItem, SearchResult
 
 from .base import Retriever
@@ -31,6 +32,7 @@ class BGEM3Retriever(Retriever):
                 from FlagEmbedding import BGEM3FlagModel
             except ImportError as exc:
                 raise ImportError("Install `vibiomir-lab[bge]` for BGE-M3 retrieval") from exc
+            apply_gpu_memory_fraction()
             self._model = BGEM3FlagModel(self.model_name, use_fp16=self.use_fp16)
         return self._model
 
