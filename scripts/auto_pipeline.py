@@ -58,6 +58,8 @@ FAILED_FILE = AUTO_ROOT / "FAILED"
 
 OFFICIAL_QUERIES = "data/raw/official/query.parquet"
 CORPUS_DIR = "data/processed/corpus"
+PUBMED_PARTS_DIR = REPO_ROOT / "data/interim/parts/pubmed"
+PUBMED_EXPECTED_PARTS = 1200  # ceil(240_000 PMIDs / 200 per efetch batch)
 STORE_V1A = "artifacts/full/store_v1a.sqlite"
 STORE_V1B = "artifacts/full/store_v1b.sqlite"
 BM25_CONFIG = "configs/full/00_bm25_lucene.yaml"
@@ -165,13 +167,13 @@ STAGES: list[Stage] = [
         VB + ["ingest", "download-official"],
         VB + ["ingest", "manifest"],
     ], min_free_gb=8),
-    Stage("pubmed", [VB + ["ingest", "pubmed"]], retries=3, min_free_gb=10),
     Stage("pilot", [["bash", "scripts/ingest_all.sh", "pilot"]], min_free_gb=10),
     Stage("pilot_gate", func="gate_pilot"),
     Stage("crawl", [
         VB + ["ingest", "crawl",
               "--skip-domain", "pubmed.ncbi.nlm.nih.gov", "--skip-domain", "vov.vn"],
     ], retries=2, min_free_gb=8),
+    Stage("pubmed_gate", func="gate_pubmed"),
     Stage("merge_v1a", [VB + ["ingest", "merge", "--version", "v1a"]], min_free_gb=8),
     Stage("store_v1a", [
         VB + ["index", "prepare", "--config", BM25_CONFIG,
@@ -218,7 +220,25 @@ STAGES: list[Stage] = [
 STAGE_NAMES = [stage.name for stage in STAGES]
 
 # Side jobs: long, network-bound processes that overlap the main chain.
+PUBMED_RETRY_LOOP = f"""
+set -u
+cd "{REPO_ROOT}"
+for attempt in $(seq 1 15); do
+  echo "[pubmed-job $(date '+%F %T')] attempt ${{attempt}}"
+  "{PY}" -m vibiomir ingest pubmed || true
+  have=$(ls data/interim/parts/pubmed/part-pubmed-*.parquet 2>/dev/null | wc -l)
+  echo "[pubmed-job $(date '+%F %T')] parts ${{have}}/{PUBMED_EXPECTED_PARTS}"
+  if [ "${{have}}" -ge 1140 ]; then echo '[pubmed-job] coverage reached'; exit 0; fi
+  sleep "${{VIBIOMIR_PUBMED_RETRY_SLEEP:-1200}}"
+done
+echo '[pubmed-job] giving up after 15 attempts'
+"""
+
 SIDE_JOBS: dict[str, dict] = {
+    "pubmed": {
+        "cmd": ["bash", "-c", PUBMED_RETRY_LOOP],
+        "start_after": "prepare",
+    },
     "vov": {
         "cmd": VB + ["ingest", "crawl", "--domain", "vov.vn", "--links", "",
                      "--workers", "1", "--log-file", "data/interim/logs/crawl_vov.log"],
@@ -356,6 +376,38 @@ def _job_running(name: str) -> bool:
     return pid_alive(read_pid(JOB_DIR / f"{name}.pid"))
 
 
+def _pubmed_part_count() -> int:
+    if not PUBMED_PARTS_DIR.exists():
+        return 0
+    return sum(1 for _ in PUBMED_PARTS_DIR.glob("part-pubmed-*.parquet"))
+
+
+def gate_pubmed() -> str:
+    """Wait out the PubMed side job, then judge EN coverage before merging.
+
+    Failed efetch batches write no part file, so the part count is honest
+    coverage. A skip still lets the chain merge: EN docs then stay
+    ``source=missing`` until a later merge picks the parts up.
+    """
+    wait_seconds = float(os.getenv("VIBIOMIR_PUBMED_WAIT_SECONDS", str(4 * 3600)))
+    deadline = time.time() + wait_seconds
+    while _job_running("pubmed") and time.time() < deadline:
+        time.sleep(120)
+    if _job_running("pubmed"):
+        # Merge must not race a part writer; the job is resume-safe, stop it.
+        pid = read_pid(JOB_DIR / "pubmed.pid")
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
+            time.sleep(5)
+        except OSError:
+            pass
+    have = _pubmed_part_count()
+    detail = f"pubmed parts {have}/{PUBMED_EXPECTED_PARTS}"
+    if have >= int(0.95 * PUBMED_EXPECTED_PARTS):
+        return f"pass:{detail}"
+    return f"skip:{detail} below 95%; EN docs merge as missing for now"
+
+
 def gate_v1b() -> str:
     """Rebuild on the Wayback corpus only if the job is done and time remains."""
     if _job_running("wayback"):
@@ -401,6 +453,7 @@ def cleanup_v1a_store() -> str:
 
 GATES = {
     "gate_pilot": gate_pilot,
+    "gate_pubmed": gate_pubmed,
     "gate_v1b": gate_v1b,
     "gate_dense_v1b": gate_dense_v1b,
     "free_disk_for_v1b": free_disk_for_v1b,
