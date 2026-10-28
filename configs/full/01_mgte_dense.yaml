@@ -20,7 +20,10 @@ chunk_retrievers:
       code_revision: 40ced75c3017eb27626c9d4ea981bde21a2662f4
       trust_remote_code: true
       normalize: true
-      batch_size: 16
+      # Benchmarked on real production chunks (runs/production/bench_b64.json):
+      # 209 chunks/s, peak process-tree VRAM 2,478 MiB, 0 OOM -> PASS_4GB.
+      # Batch 96/128 are slower and closer to the 3 GiB allocator cap.
+      batch_size: 64
       max_length: 512
       use_fp16: true
 
