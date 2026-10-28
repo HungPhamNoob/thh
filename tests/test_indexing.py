@@ -38,6 +38,21 @@ class ArtifactStoreTest(unittest.TestCase):
             self.assertEqual(chunk.text, "đau đầu kéo dài")
             self.assertEqual(chunk.text, chunk.index_text)
 
+    def test_export_jsonl_gzip_roundtrip(self):
+        import gzip
+
+        plain = self.root / "collection" / "part-00000.jsonl"
+        compressed = self.root / "collection" / "part-00000.json.gz"
+        with ArtifactStore(self.store_path) as store:
+            expected = store.count("chunk")
+            self.assertEqual(store.export_jsonl("chunk", plain), expected)
+            self.assertEqual(store.export_jsonl("chunk", compressed), expected)
+        with compressed.open("rb") as handle:
+            self.assertEqual(handle.read(2), b"\x1f\x8b")  # gzip magic
+        lines = gzip.decompress(compressed.read_bytes()).decode("utf-8").splitlines()
+        self.assertEqual(lines, plain.read_text(encoding="utf-8").splitlines())
+        self.assertIn("contents", json.loads(lines[0]))
+
     def test_persistent_numpy_index_searches_without_loading_corpus(self):
         index_dir = self.root / "index"
         build_numpy_index(

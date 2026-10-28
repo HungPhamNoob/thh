@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import sqlite3
@@ -207,10 +208,19 @@ class ArtifactStore:
         path: str | Path,
         languages: Iterable[str] | None = None,
     ) -> int:
+        """Export items as a Lucene JsonCollection file; ``.gz`` writes gzip.
+
+        Anserini's JsonCollection reader accepts gzipped members, and gzip cuts
+        the multi-GB full-corpus export to roughly a quarter on a small disk.
+        """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         count = 0
-        with path.open("w", encoding="utf-8") as handle:
+        if path.suffix == ".gz":
+            handle = gzip.open(path, "wt", encoding="utf-8", compresslevel=6)
+        else:
+            handle = path.open("w", encoding="utf-8")
+        with handle:
             for batch in self.iter_items(stage, languages=languages):
                 for item in batch:
                     handle.write(

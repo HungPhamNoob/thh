@@ -103,7 +103,9 @@ def _build_one(store_path: Path, stage: str, config: dict, nranks: int, threads:
         return
     if kind == "pyserini":
         index_dir = Path(config["index_dir"])
-        collection = index_dir.parent / f"{index_dir.name}_input" / "part-00000.jsonl"
+        # Gzipped JSON lines: Anserini's JsonCollection reads .json.gz directly
+        # and the full-corpus export is several GB on a small competition disk.
+        collection = index_dir.parent / f"{index_dir.name}_input" / "part-00000.json.gz"
         with ArtifactStore(store_path) as store:
             count = store.export_jsonl(stage, collection, languages=languages)
         print(f"Exported {count} BM25 rows: {collection}")
