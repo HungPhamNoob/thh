@@ -253,7 +253,14 @@ data/processed/docstore.sqlite
 
 - Doc store (SQLite `id → title, text, language` hoặc parquet có chỉ mục id) cho pipeline lấy text của vài trăm doc ứng viên mỗi query mà không nạp cả corpus vào RAM.
 - Dung lượng ước tính: text ~1,2M doc × ~4 KB ≈ 5 GB dạng thô, ~1,5–2 GB parquet zstd. Embedding doc-level 1024 chiều fp16 ≈ 2,5 GB.
-- Toàn bộ `data/` nằm trong `.gitignore`; dùng chung giữa các thành viên qua HF dataset private hoặc Google Drive, không qua git.
+- Toàn bộ `data/` nằm trong `.gitignore` và được chia sẻ giữa các thành viên qua HF dataset private, không qua git. Corpus v1 nằm ở [`vibiomir-corpus/vibiomir-corpus`](https://huggingface.co/datasets/vibiomir-corpus/vibiomir-corpus) (private, thuộc org `vibiomir-corpus`, upload 28/10). Repo gồm `corpus/v1/part-000NN.parquet` (13 file, 1,4 GB), `manifest.parquet`, `coverage.csv` và `corpus_info.json`. Để tải: xin admin org mời tài khoản HF của mình vào org (role read là đủ, write nếu cần đẩy bản mới), đăng nhập bằng token của chính mình (`hf auth login`), rồi chạy:
+
+  ```python
+  from huggingface_hub import snapshot_download
+  snapshot_download("vibiomir-corpus/vibiomir-corpus", repo_type="dataset", local_dir="data/hf_corpus")
+  ```
+
+  Code đọc corpus nhận `data/hf_corpus/corpus/v1` thay cho `data/processed/corpus`. Không chia sẻ token, không chuyển repo sang public: text là nội dung crawl từ site gốc, chỉ dùng nội bộ cho cuộc thi. Bản mới (ví dụ v1.1) upload vào `corpus/<version>/` của cùng repo.
 
 ## 5. Cấu trúc code đề xuất
 
