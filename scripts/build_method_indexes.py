@@ -79,6 +79,8 @@ def _build_one(store_path: Path, stage: str, config: dict, nranks: int, threads:
             "local_path": config.get("local_path"),
             "timeout": config.get("timeout", 60.0),
             "prefer_grpc": config.get("prefer_grpc", False),
+            "upload_workers": config.get("upload_workers", 1),
+            "quantization": config.get("quantization"),
         }
         if indexing.get("type") == "late_chunking":
             model_config = {key: value for key, value in indexing.items() if key != "type"}
@@ -103,7 +105,7 @@ def _build_one(store_path: Path, stage: str, config: dict, nranks: int, threads:
         return
     if kind == "pyserini":
         index_dir = Path(config["index_dir"])
-        collection = index_dir.parent / f"{index_dir.name}_input" / "part-00000.jsonl"
+        collection = index_dir.parent / f"{index_dir.name}_input" / "part-00000.json.gz"
         with ArtifactStore(store_path) as store:
             count = store.export_jsonl(stage, collection, languages=languages)
         print(f"Exported {count} BM25 rows: {collection}")

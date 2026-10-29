@@ -23,7 +23,7 @@ chunk_retrievers:
       model_name: naver/splade-cocondenser-ensembledistil
       revision: a13a25e5565dd531d5ef6d38aff988cb1fab0d10
       max_length: 256
-      batch_size: 16
+      batch_size: 4
       quantization_factor: 100
 
 reranker:

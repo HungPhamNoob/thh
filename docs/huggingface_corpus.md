@@ -16,18 +16,27 @@ Nguồn kiểm tra: [dataset tree](https://huggingface.co/datasets/vibiomir-corp
 [`corpus_info.json`](https://huggingface.co/datasets/vibiomir-corpus/vibiomir-corpus/blob/13d60924d53e720a7f84c78e3b08b7e17b670b5d/corpus_info.json)
 và [`coverage.csv`](https://huggingface.co/datasets/vibiomir-corpus/vibiomir-corpus/blob/13d60924d53e720a7f84c78e3b08b7e17b670b5d/coverage.csv).
 
-Dataset đủ 1.220.598 ID nhưng chỉ 1.047.415 dòng có text. 173.183 dòng text rỗng được bỏ khỏi
-SQLite/Qdrant vì không có nội dung để chunk hoặc embed. Runner kiểm tra đúng các số này và dừng
-ngay nếu dataset revision trả về số shard/row khác dự kiến.
+Dataset đủ 1.220.598 ID nhưng chỉ 1.047.384 dòng có text hữu ích (sau chuẩn hoá). 173.214 dòng
+text rỗng được bỏ khỏi SQLite/Qdrant vì không có nội dung để chunk hoặc embed. Runner kiểm tra
+đúng các số này và dừng ngay nếu dataset revision trả về số shard/row khác dự kiến.
+
+Lưu ý về chênh lệch 31 dòng: `corpus_info.json` của BTC công bố 1.047.415 document "có text" và
+173.183 dòng rỗng vì đếm theo nhãn `source` (khác `missing`). Khi đọc trực tiếp 13 shard của
+revision đã pin, có đúng 31 dòng mang nhãn `crawl`/`wayback` nhưng `text` và `title` rỗng — tức
+không có nội dung để index. Vì empty text là coverage row hợp lệ cần skip (không phải schema
+error), contract trong code dùng số đếm theo nội dung thực: 1.047.384 + 173.214 = 1.220.598.
+Không dùng LLM hay bất kỳ nguồn nào để bịa nội dung cho 31 dòng này cũng như 173.183 dòng
+`missing`; chúng chỉ được khôi phục qua crawl bổ sung ở corpus revision mới.
 
 ## Luồng chạy
 
 ```text
 13 Parquet shards (HF, pinned SHA)
   -> verify 1,220,598 rows
-  -> bỏ 173,183 text rỗng
-  -> 1,047,415 documents có text
-  -> chunk nguyên văn + store.sqlite
+  -> bỏ 173,214 text rỗng (gồm 31 dòng nhãn crawl/wayback nhưng text rỗng)
+  -> 1,047,384 documents có text
+  -> chunk nguyên văn + store.sqlite (mỗi text lưu đúng 1 lần: documents giữ
+     text gốc, chunks giữ span start/end và index_text override khi khác)
   -> embedding -> Qdrant / Lucene / PLAID
   -> retrieve 1,200 queries
   -> submission.json
@@ -64,7 +73,20 @@ bash scripts/build_vibiomir_method.sh 01_mgte_dense
 Script thực hiện hai bước:
 
 1. Tải/đọc đủ 13 shard, chunk và tạo `artifacts/full/01_mgte_dense/store.sqlite`.
-2. Encode chunk và upsert collection `mgte_dense_chunks` lên Qdrant.
+   Nếu store đã tồn tại và metadata khớp đúng corpus đã pin (revision, số dòng,
+   `store_format_version`), script tái sử dụng luôn thay vì prepare lại — bản
+   copy tạm 20+ GB có thể không vừa đĩa; `FORCE_PREPARE=1` ép tạo lại.
+2. Encode chunk và upsert collection versioned của method lên Qdrant.
+
+Collection production hiện được version theo method, corpus và cấu hình nén, ví dụ
+`${QDRANT_COLLECTION_PREFIX}_01_mgte_dense_13d60924_int8_chunks`. `int8` là scalar
+quantization phía server: bản nén int8 được lưu **cạnh** vector float32 gốc (giảm RAM,
+tăng tốc search; **không** giảm dung lượng đĩa — đĩa vẫn cần ~17 GB cho cả corpus),
+và khi search mặc định rescore bằng vector gốc với oversampling 3 nên xếp hạng gần
+như không đổi. Script không tự xóa collection cũ; point ID deterministic và state
+local cho phép resume. Manifest Qdrant ghi model/revision, corpus revision, chunker,
+vector size, distance, cấu hình quantization, commit code, timestamp và kết quả sample
+search.
 
 BM25 không cần Qdrant:
 
@@ -105,6 +127,9 @@ Validator đảm bảo:
 - `chunk_order` nếu có phải là integer không âm;
 - `chunk_text` là substring của document tương ứng trong SQLite;
 - ZIP chỉ chứa duy nhất `submission.json`, không có thư mục con.
+
+Mỗi run còn ghi `manifest.json`, `config_resolved.yaml`, `run.log` và báo cáo GPU. Quy tắc hard
+limit 4 GiB và ma trận từng model nằm trong [`gpu_4gb.md`](gpu_4gb.md).
 
 Đóng gói lại một JSON đã có:
 

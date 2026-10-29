@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from vibiomir.gpu import apply_gpu_memory_limit
 from vibiomir.schemas import SearchItem, SearchResult
 
 from .base import Reranker
@@ -23,6 +24,7 @@ class CrossEncoderReranker(Reranker):
                 from sentence_transformers import CrossEncoder
             except ImportError as exc:
                 raise ImportError("Install `vibiomir-lab[dense]` for cross-encoder reranking") from exc
+            apply_gpu_memory_limit()
             self._model = CrossEncoder(
                 self.model_name,
                 device=self.device,

@@ -79,7 +79,7 @@ Trạng thái: `todo` / `doing` / `done`. Ưu tiên: P0 > P1 > P2.
 | Mã | Ưu tiên | Việc | Tiêu chí xong | Trạng thái |
 |---|---|---|---|---|
 | E1 | P0 | Sửa `evaluation/official.py` cho khớp luật: cặp (c, g) khớp khi **cả** LCS/\|g\| ≥ 0,4 **và** LCS/\|c\| ≥ 0,4; chunk nộp đúng nếu khớp **bất kỳ** chunk vàng nào (không ghép 1–1); recall = số chunk vàng có ít nhất một chunk nộp khớp; F2 tính theo từng query rồi trung bình; `final_score = (doc_f2 + chunk_f2)/2`. Sửa `test_one_to_one_chunk_matching` theo luật mới; thêm test có số liệu tính tay, gồm ca chunk nộp quá dài (chứa trọn chunk vàng nhưng dài hơn 2,5 lần) phải bị tính sai. | Test mới pass; README/docs ghi đúng tên metric | done |
-| E2 | P0 | `vibiomir package`: validate (đủ 1.200 id, id là int, doc id thuộc corpus, `chunk_text` là substring, không rỗng), tuỳ chọn kiểu doc id `int\|str`, nén ZIP **một file ở gốc**. | ZIP mở ra đúng 1 file; validator bắt được lỗi cố ý | todo |
+| E2 | P0 | `vibiomir package`: validate (đủ 1.200 id, id là int, doc id thuộc corpus, `chunk_text` là substring, không rỗng), nén ZIP **một file ở gốc** và mở lại kiểm tra. | ZIP mở ra đúng 1 file; validator bắt được lỗi cố ý | done (28/10): strict validator + ZIP round-trip test |
 | E3 | P0 | Dev set: (a) silver từ trang hỏi đáp chứa gần nguyên văn query (BM25 điểm vượt trội, người kiểm tra lại); (b) 50–100 query gán tay doc + chunk bằng script gợi ý ứng viên; (c) tuỳ chọn: query tổng hợp kiểu GPL bằng LLM mở. Định dạng giống `examples/gold.json`. | ≥ 100 query có nhãn, ghi rõ nguồn từng nhãn | todo |
 | E4 | P0 | Nhật ký: `docs/submission_log.md` (mỗi lần nộp một dòng) + thư mục `runs/<ngày>_<tên>/` lưu config đã resolve, commit, metric. | Mọi bài nộp đều tra ngược được ra config + commit | todo |
 | E5 | P1 | Phân tích lỗi: tách theo ngôn ngữ doc, độ dài query; phân loại không có kết quả / sai doc / đúng doc sai chunk / chunk quá ngắn. | Báo cáo ngắn sau mỗi thay đổi lớn | todo |
@@ -88,7 +88,7 @@ Trạng thái: `todo` / `doing` / `done`. Ưu tiên: P0 > P1 > P2.
 
 | Mã | Ưu tiên | Việc | Tiêu chí xong | Trạng thái |
 |---|---|---|---|---|
-| R0 | P0 | Runner cho toàn corpus, không nạp hết vào RAM: local SQLite artifact store + persistent Qdrant/Lucene/PLAID indexes, chunk-first hoặc cascade, selection → submission. | Code và smoke test xong; benchmark 1.200 query/RAM trên corpus v1 còn chờ artifact thật | implemented; benchmark pending |
+| R0 | P0 | Runner cho toàn corpus, không nạp hết vào RAM: local SQLite artifact store + persistent Qdrant/Lucene/PLAID indexes, chunk-first hoặc cascade, selection → submission. | Code và smoke test xong; benchmark 1.200 query/RAM trên corpus v1 còn chờ artifact thật | implemented: pinned 13-shard verifier, Qdrant resume/verification, strict package, hard 4 GiB monitor; production benchmark đang chạy |
 | R1 | P0 | Query dài nhiều ý: tách câu/ý, rút keyphrase y khoa (LLM mở, ví dụ Qwen2.5-7B-Instruct, chế độ `keywords` đã có), giữ query gốc làm một variant. | Cải thiện trên dev; không giảm doc precision | todo |
 | R2 | P1 | Nhận diện trang nguồn gần trùng query (trang hỏi đáp chứa câu hỏi): điểm BM25 top-1 vượt xa top-2 → coi là doc chắc chắn. | Đo precision của luật trên dev | todo |
 | R3 | P0 | Xuyên ngữ: dịch query VI→EN/ZH (NLLB-200 hoặc LLM mở ≤ 15B), BM25 trên index EN (PubMed) và ZH (bigram CJK); tuỳ chọn MedCPT cho nhánh EN. | Recall doc EN/ZH tăng trên dev | todo |

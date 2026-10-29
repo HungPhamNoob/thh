@@ -39,12 +39,15 @@ Kết nối Qdrant Cloud bằng biến môi trường, không commit secret:
 ```bash
 cp .env.example .env
 # sửa QDRANT_URL, QDRANT_API_KEY và QDRANT_COLLECTION_PREFIX trong .env
+# giữ VIBIOMIR_GPU_MAX_GIB=3.0 để toàn bộ process ở dưới hard limit 4 GiB
 ```
 
 `build_method.sh` và `run_method.sh` tự nạp `.env` nếu file tồn tại. Có thể `export` ba biến đó
 trực tiếp trong scheduler/secret manager. API key nên được giới hạn quyền và rotate nếu từng bị
 lộ. Hướng dẫn chính thức: [Qdrant Cloud quickstart](https://qdrant.tech/documentation/cloud/quickstart-cloud/)
 và [database security](https://qdrant.tech/documentation/guides/security/).
+Qdrant chỉ giữ vector + khóa `store_key`; SQLite vẫn là nguồn exact text. Xem benchmark và giới hạn
+GPU tại [`gpu_4gb.md`](gpu_4gb.md).
 
 ## 3. Ingest
 

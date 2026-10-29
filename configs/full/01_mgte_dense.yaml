@@ -5,28 +5,53 @@ document_retrievers: []
 chunk_retrievers:
   - type: qdrant
     name: mgte_dense
-    collection_name: mgte_dense_chunks
+    collection_name: 01_mgte_dense_13d60924_int8_chunks
     state_dir: artifacts/full/01_mgte_dense/qdrant_state
     distance: cosine
     on_disk: true
-    store_text_payload: true
+    # Scalar int8 quantization: stored alongside the float32 originals, so it
+    # cuts RAM and speeds up search without touching disk usage; retrieval
+    # rescores with the originals (near-lossless per Qdrant guidance).
+    quantization:
+      scalar:
+        quantile: 0.99
+        always_ram: false
+    query_quantization:
+      rescore: true
+      oversampling: 3
+    # Exact text remains in SQLite; Qdrant stores the deterministic store_key.
+    store_text_payload: false
+    # gRPC sends binary vectors (~5x smaller than REST JSON) and 4 parallel
+    # upsert streams hide the ~800 ms RTT to the cluster; the checkpoint
+    # offset still advances strictly in order, so resume stays exact.
+    prefer_grpc: true
+    upload_workers: 4
+    timeout: 300
     k: 1000
     weight: 1.0
     encoder:
       type: sentence_transformer
       model_name: Alibaba-NLP/gte-multilingual-base
       revision: 9bbca17d9273fd0d03d5725c7a4b0f6b45142062
+      code_revision: 40ced75c3017eb27626c9d4ea981bde21a2662f4
       trust_remote_code: true
       normalize: true
+      # Benchmarked on real production chunks (runs/production/bench_b64.json):
+      # 209 chunks/s, peak process-tree VRAM 2,478 MiB, 0 OOM -> PASS_4GB.
+      # Batch 96/128 are slower and closer to the 3 GiB allocator cap.
       batch_size: 64
+      max_length: 512
+      use_fp16: true
 
 reranker:
   type: hf_sequence_classifier
   model_name: Alibaba-NLP/gte-multilingual-reranker-base
   revision: 8215cf04918ba6f7b6a62bb44238ce2953d8831c
+  code_revision: 40ced75c3017eb27626c9d4ea981bde21a2662f4
   trust_remote_code: true
-  max_length: 1024
-  batch_size: 16
+  max_length: 512
+  batch_size: 4
+  use_fp16: true
   candidate_k: 250
   output_k: 180
 

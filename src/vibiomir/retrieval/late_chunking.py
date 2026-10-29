@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from vibiomir.gpu import apply_gpu_memory_limit
 from vibiomir.schemas import SearchItem, SearchResult
 
 from .base import Retriever
@@ -27,6 +28,7 @@ class LateChunkingRetriever(Retriever):
     device: str | None = None
     trust_remote_code: bool = True
     revision: str | None = None
+    use_fp16: bool = True
     _tokenizer: object | None = field(default=None, init=False, repr=False)
     _model: object | None = field(default=None, init=False, repr=False)
     _items: list[SearchItem] = field(default_factory=list, init=False, repr=False)
@@ -39,6 +41,7 @@ class LateChunkingRetriever(Retriever):
                 from transformers import AutoModel, AutoTokenizer
             except ImportError as exc:
                 raise ImportError("Install `vibiomir-lab[transformers]` for late chunking") from exc
+            apply_gpu_memory_limit()
             self._tokenizer = AutoTokenizer.from_pretrained(
                 self.model_name,
                 trust_remote_code=self.trust_remote_code,
@@ -50,6 +53,8 @@ class LateChunkingRetriever(Retriever):
                 revision=self.revision,
             )
             target = self.device or ("cuda" if torch.cuda.is_available() else "cpu")
+            if self.use_fp16 and str(target).startswith("cuda"):
+                self._model.half()
             self._model.to(target)
             self._model.eval()
         return self._tokenizer, self._model
@@ -69,7 +74,7 @@ class LateChunkingRetriever(Retriever):
         encoded = {key: value.to(target) for key, value in encoded.items()}
         token_count = int(encoded["input_ids"].shape[1])
         if token_count <= self.max_length:
-            with torch.no_grad():
+            with torch.inference_mode():
                 hidden = model(**encoded).last_hidden_state[0]
         else:
             if not 0 <= self.overlap_tokens < self.max_length:
@@ -79,7 +84,7 @@ class LateChunkingRetriever(Retriever):
             for start in range(0, token_count, step):
                 end = min(start + self.max_length, token_count)
                 batch = {key: value[:, start:end] for key, value in encoded.items()}
-                with torch.no_grad():
+                with torch.inference_mode():
                     window = model(**batch).last_hidden_state[0]
                 if start:
                     window = window[self.overlap_tokens :]
@@ -115,7 +120,7 @@ class LateChunkingRetriever(Retriever):
             return_tensors="pt",
         )
         encoded = {key: value.to(target) for key, value in encoded.items()}
-        with torch.no_grad():
+        with torch.inference_mode():
             hidden = model(**encoded).last_hidden_state
         mask = encoded["attention_mask"]
         vector = (hidden * mask[..., None]).sum(1) / mask.sum(1, keepdim=True).clamp_min(1)
