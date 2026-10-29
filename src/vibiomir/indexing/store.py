@@ -9,13 +9,22 @@ from pathlib import Path
 
 from vibiomir.schemas import Chunk, Document, SearchItem
 
+# Chunk text is stored exactly once (in documents.text).  Chunks carry the
+# character span and an optional index_text override; the verbatim chunk text
+# is derived with SQLite substr (character-based, matching Python slicing).
+# prepare_store enforces chunk.text == document.text[start:end] at write time,
+# so derivation cannot drift from the chunker output.
+_CHUNK_TEXT_SQL = "substr(d.text, c.start_char + 1, c.end_char - c.start_char)"
+_CHUNK_INDEX_SQL = f"COALESCE(c.index_text_override, {_CHUNK_TEXT_SQL})"
+
 
 class ArtifactStore:
     """Local document/chunk store used by full-corpus indexes.
 
     SQLite is deliberately the source of submitted chunk text.  Vector and
-    Lucene indexes may be rebuilt, while this store preserves the exact text and
-    character offsets needed by the competition validator.
+    Lucene indexes may be rebuilt, while this store preserves the exact text
+    (once, in ``documents``) and the character offsets that derive every chunk
+    verbatim for the competition validator.
     """
 
     def __init__(self, path: str | Path, read_only: bool = True):
@@ -91,13 +100,16 @@ class ArtifactStore:
         languages: Iterable[str] | None = None,
     ) -> Iterator[list[SearchItem]]:
         _table(stage)
-        where, parameters = _language_filter(list(languages or []))
+        where, parameters = _language_filter(
+            list(languages or []), "" if stage == "document" else "c."
+        )
         if stage == "document":
             sql = f"SELECT id, title, text, language, url FROM documents{where} ORDER BY id"
         else:
             sql = (
-                "SELECT id, doc_id, index_text, chunk_order, start_char, end_char, language "
-                f"FROM chunks{where} ORDER BY id"
+                f"SELECT c.id, c.doc_id, {_CHUNK_INDEX_SQL} AS index_text, c.chunk_order, "
+                "c.start_char, c.end_char, c.language "
+                f"FROM chunks c JOIN documents d ON d.id = c.doc_id{where} ORDER BY c.id"
             )
         cursor = self.connection.execute(sql, parameters)
         while rows := cursor.fetchmany(batch_size):
@@ -150,8 +162,10 @@ class ArtifactStore:
                 )
             else:
                 sql = (
-                    f"SELECT id, doc_id, index_text, chunk_order, start_char, end_char, language "
-                    f"FROM {table} WHERE id IN ({placeholders})"
+                    f"SELECT c.id, c.doc_id, {_CHUNK_INDEX_SQL} AS index_text, c.chunk_order, "
+                    "c.start_char, c.end_char, c.language "
+                    f"FROM {table} c JOIN documents d ON d.id = c.doc_id "
+                    f"WHERE c.id IN ({placeholders})"
                 )
             for row in self.connection.execute(sql, part):
                 if stage == "document":
@@ -190,12 +204,11 @@ class ArtifactStore:
     ) -> Iterator[tuple[str, list[SearchItem]]]:
         """Yield original document text and its chunks without N+1 SQL queries."""
         language_list = list(languages or [])
-        where, parameters = _language_filter(language_list)
-        if where:
-            where = where.replace("language", "d.language", 1)
+        where, parameters = _language_filter(language_list, "d.")
         cursor = self.connection.execute(
             "SELECT d.id AS document_id, d.text AS document_text, "
-            "c.id, c.doc_id, c.index_text, c.chunk_order, c.start_char, c.end_char, "
+            f"c.id, c.doc_id, {_CHUNK_INDEX_SQL} AS index_text, c.chunk_order, "
+            "c.start_char, c.end_char, "
             f"c.language FROM documents d JOIN chunks c ON c.doc_id = d.id{where} "
             "ORDER BY d.id, c.chunk_order",
             parameters,
@@ -237,8 +250,10 @@ class ArtifactStore:
             part = wanted[start : start + 900]
             placeholders = ",".join("?" for _ in part)
             sql = (
-                "SELECT id, doc_id, text, index_text, chunk_order, start_char, end_char, "
-                f"language, metadata FROM chunks WHERE id IN ({placeholders})"
+                f"SELECT c.id, c.doc_id, {_CHUNK_TEXT_SQL} AS text, "
+                f"{_CHUNK_INDEX_SQL} AS index_text, c.chunk_order, c.start_char, c.end_char, "
+                f"c.language, c.metadata FROM chunks c JOIN documents d ON d.id = c.doc_id "
+                f"WHERE c.id IN ({placeholders})"
             )
             for row in self.connection.execute(sql, part):
                 output[row["id"]] = Chunk(
@@ -313,11 +328,11 @@ def _table(stage: str) -> str:
     raise ValueError("stage must be 'document' or 'chunk'")
 
 
-def _language_filter(languages: list[str]) -> tuple[str, list[str]]:
+def _language_filter(languages: list[str], prefix: str = "") -> tuple[str, list[str]]:
     if not languages:
         return "", []
     placeholders = ",".join("?" for _ in languages)
-    return f" WHERE language IN ({placeholders})", languages
+    return f" WHERE {prefix}language IN ({placeholders})", languages
 
 
 def prepare_store(
@@ -335,7 +350,7 @@ def prepare_store(
         temporary.unlink()
     connection = sqlite3.connect(temporary)
     connection.executescript(
-        """
+        f"""
         PRAGMA journal_mode=DELETE;
         PRAGMA synchronous=NORMAL;
         CREATE TABLE documents (
@@ -343,8 +358,8 @@ def prepare_store(
             language TEXT NOT NULL, url TEXT NOT NULL, metadata TEXT NOT NULL
         );
         CREATE TABLE chunks (
-            id TEXT PRIMARY KEY, doc_id TEXT NOT NULL, text TEXT NOT NULL,
-            index_text TEXT NOT NULL, chunk_order INTEGER NOT NULL,
+            id TEXT PRIMARY KEY, doc_id TEXT NOT NULL,
+            index_text_override TEXT, chunk_order INTEGER NOT NULL,
             start_char INTEGER NOT NULL, end_char INTEGER NOT NULL,
             language TEXT NOT NULL, metadata TEXT NOT NULL
         );
@@ -353,12 +368,13 @@ def prepare_store(
             key TEXT PRIMARY KEY, value TEXT NOT NULL
         );
         CREATE VIEW chunk_provenance AS
-        SELECT c.doc_id, c.id AS chunk_id, c.chunk_order, c.text, c.index_text,
+        SELECT c.doc_id, c.id AS chunk_id, c.chunk_order,
+               {_CHUNK_TEXT_SQL} AS text, {_CHUNK_INDEX_SQL} AS index_text,
                c.start_char, c.end_char, c.language, d.url AS source_url
         FROM chunks c JOIN documents d ON d.id = c.doc_id;
         """
     )
-    metadata = {"store_format_version": 2, **(store_metadata or {})}
+    metadata = {"store_format_version": 3, **(store_metadata or {})}
     connection.executemany(
         "INSERT INTO store_metadata(key, value) VALUES (?, ?)",
         [
@@ -387,13 +403,14 @@ def prepare_store(
                 if chunk.text != document.text[chunk.start_char : chunk.end_char]:
                     raise ValueError(f"Chunk {chunk.id} is not an exact source substring")
             connection.executemany(
-                "INSERT INTO chunks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO chunks VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     (
                         chunk.id,
                         chunk.doc_id,
-                        chunk.text,
-                        chunk.index_text,
+                        # Store the embedding text only when it differs from the
+                        # verbatim chunk text; readers derive it otherwise.
+                        chunk.index_text if chunk.index_text != chunk.text else None,
                         chunk.order,
                         chunk.start_char,
                         chunk.end_char,

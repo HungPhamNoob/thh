@@ -57,7 +57,8 @@ try:
 except sqlite3.Error:
     sys.exit(1)
 ok = (
-    meta.get("corpus_revision") == revision
+    meta.get("store_format_version") == 3
+    and meta.get("corpus_revision") == revision
     and meta.get("source_rows") == 1_220_598
     and docs == meta.get("expected_documents")
     and docs > 0
