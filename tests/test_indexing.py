@@ -41,6 +41,66 @@ class ArtifactStoreTest(unittest.TestCase):
             self.assertEqual(chunk.text, "đau đầu kéo dài")
             self.assertEqual(chunk.text, chunk.index_text)
 
+    def test_store_v3_keeps_text_once_and_preserves_index_override(self):
+        from vibiomir.chunking.base import make_chunk
+
+        class OverrideChunker:
+            def split(self, document):
+                chunk = make_chunk(document, 0, 0, len(document.text))
+                chunk.index_text = f"CONTEXT {chunk.text}"
+                return [chunk]
+
+        override_path = self.root / "override.sqlite"
+        prepare_store(
+            [Document(id="d1", text="hello world", language="en")],
+            OverrideChunker(),
+            override_path,
+        )
+        with ArtifactStore(override_path) as store:
+            columns = {
+                row["name"]
+                for row in store.connection.execute("PRAGMA table_info(chunks)")
+            }
+            # Chunk text is derived from documents.text; only a differing
+            # index_text is stored, never a second copy of the chunk text.
+            self.assertNotIn("text", columns)
+            self.assertIn("index_text_override", columns)
+            stored = store.connection.execute(
+                "SELECT index_text_override FROM chunks"
+            ).fetchone()["index_text_override"]
+            self.assertEqual(stored, "CONTEXT hello world")
+            chunk = store.get_chunks(["d1::c00000"])["d1::c00000"]
+            self.assertEqual(chunk.text, "hello world")
+            self.assertEqual(chunk.index_text, "CONTEXT hello world")
+
+        with ArtifactStore(self.store_path) as store:
+            stored = store.connection.execute(
+                "SELECT index_text_override FROM chunks"
+            ).fetchall()
+            self.assertTrue(all(row["index_text_override"] is None for row in stored))
+            items = next(store.iter_items("chunk", batch_size=10))
+            self.assertEqual({item.text for item in items if item.id.startswith("vi")},
+                             {"đau đầu kéo dài"})
+            metadata = store.metadata()
+            self.assertEqual(metadata.get("store_format_version"), 3)
+
+    def test_quantization_spec_maps_to_scalar_int8(self):
+        from qdrant_client import models
+
+        from vibiomir.indexing.qdrant import quantization_config_from_spec
+
+        config = quantization_config_from_spec(
+            {"scalar": {"quantile": 0.95, "always_ram": True}}
+        )
+        assert config is not None
+        self.assertEqual(config.scalar.type, models.ScalarType.INT8)
+        self.assertEqual(config.scalar.quantile, 0.95)
+        self.assertTrue(config.scalar.always_ram)
+        self.assertIsNone(quantization_config_from_spec(None))
+        self.assertIsNone(quantization_config_from_spec({}))
+        with self.assertRaises(ValueError):
+            quantization_config_from_spec({"binary": {}})
+
     def test_store_exposes_reproducible_chunk_provenance(self):
         with ArtifactStore(self.store_path) as store:
             row = store.connection.execute(
@@ -491,7 +551,8 @@ class _FakeQdrantClient:
     def collection_exists(self, collection_name):
         return False
 
-    def create_collection(self, collection_name, vectors_config):
+    def create_collection(self, collection_name, vectors_config, quantization_config=None):
+        self.quantization_config = quantization_config
         return True
 
     def upsert(self, collection_name, points, wait):

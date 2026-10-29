@@ -310,6 +310,7 @@ def command_build_qdrant(args: argparse.Namespace) -> int:
             if args.upload_workers is not None
             else retriever.get("upload_workers", 1)
         ),
+        "quantization": retriever.get("quantization"),
     }
     indexing = retriever.get("indexing", {})
     if indexing.get("type") == "late_chunking":

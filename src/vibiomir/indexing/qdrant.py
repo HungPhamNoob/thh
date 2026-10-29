@@ -60,6 +60,34 @@ def make_qdrant_client(
     )
 
 
+def quantization_config_from_spec(spec: dict[str, Any] | None):
+    """Translate a declarative quantization spec into Qdrant client models.
+
+    Supported shape (scalar int8 only, matching Qdrant's storage options)::
+
+        {"scalar": {"quantile": 0.99, "always_ram": false}}
+
+    Quantized vectors are stored *in addition to* the float32 originals, so
+    this reduces RAM and accelerates search; it does not shrink disk usage.
+    Retrieval keeps full precision by rescoring with the original vectors.
+    """
+    if not spec:
+        return None
+    from qdrant_client import models
+
+    scalar = spec.get("scalar")
+    if scalar is None or set(spec) - {"scalar"}:
+        raise ValueError("quantization spec must contain only a 'scalar' block")
+    # models.QuantizationConfig is a Union alias; construct the concrete member.
+    return models.ScalarQuantization(
+        scalar=models.ScalarQuantizationConfig(
+            type=models.ScalarType.INT8,
+            quantile=float(scalar.get("quantile", 0.99)),
+            always_ram=bool(scalar.get("always_ram", False)),
+        )
+    )
+
+
 def ensure_collection(
     client,
     collection_name: str,
@@ -68,6 +96,7 @@ def ensure_collection(
     distance: str = "cosine",
     recreate: bool = False,
     on_disk: bool = True,
+    quantization: dict[str, Any] | None = None,
 ) -> None:
     from qdrant_client import models
 
@@ -80,6 +109,7 @@ def ensure_collection(
         metric = distances[distance.casefold()]
     except KeyError as exc:
         raise ValueError("distance must be cosine, dot, or euclid") from exc
+    quantization_config = quantization_config_from_spec(quantization)
     exists = client.collection_exists(collection_name)
     if exists and recreate:
         client.delete_collection(collection_name)
@@ -92,9 +122,16 @@ def ensure_collection(
                 distance=metric,
                 on_disk=on_disk,
             ),
+            quantization_config=quantization_config,
         )
         return
     info = client.get_collection(collection_name)
+    existing_quantization = getattr(info.config, "quantization", None)
+    if bool(existing_quantization) != bool(quantization_config):
+        raise ValueError(
+            f"Collection {collection_name!r} quantization config does not match the "
+            "requested one; create a new versioned collection instead of reusing it"
+        )
     vectors = info.config.params.vectors
     if isinstance(vectors, dict):
         raise ValueError(f"Collection {collection_name!r} uses named vectors; one vector is required")
@@ -273,6 +310,7 @@ def build_qdrant_index(
     timeout: float = 60.0,
     prefer_grpc: bool = False,
     upload_workers: int = 1,
+    quantization: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Stream embeddings to Qdrant with idempotent IDs and resumable local state.
 
@@ -319,6 +357,7 @@ def build_qdrant_index(
                 "distance": distance,
                 "on_disk": on_disk,
                 "store_text_payload": store_text_payload,
+                "quantization": quantization,
             }
             state = _load_json(state_path)
             if recreate:
@@ -333,7 +372,12 @@ def build_qdrant_index(
             dimension = int(state.get("dimension", 0))
             if dimension:
                 ensure_collection(
-                    client, collection, dimension, distance=distance, on_disk=on_disk
+                    client,
+                    collection,
+                    dimension,
+                    distance=distance,
+                    on_disk=on_disk,
+                    quantization=quantization,
                 )
                 remote_count = int(client.count(collection_name=collection, exact=True).count)
                 if remote_count < offset:
@@ -414,6 +458,7 @@ def build_qdrant_index(
                             distance=distance,
                             recreate=recreate,
                             on_disk=on_disk,
+                            quantization=quantization,
                         )
                     elif int(vectors.shape[1]) != dimension:
                         raise ValueError("Encoder dimension changed during indexing")

@@ -35,7 +35,8 @@ Không dùng LLM hay bất kỳ nguồn nào để bịa nội dung cho 31 dòng
   -> verify 1,220,598 rows
   -> bỏ 173,214 text rỗng (gồm 31 dòng nhãn crawl/wayback nhưng text rỗng)
   -> 1,047,384 documents có text
-  -> chunk nguyên văn + store.sqlite
+  -> chunk nguyên văn + store.sqlite (mỗi text lưu đúng 1 lần: documents giữ
+     text gốc, chunks giữ span start/end và index_text override khi khác)
   -> embedding -> Qdrant / Lucene / PLAID
   -> retrieve 1,200 queries
   -> submission.json
@@ -72,12 +73,20 @@ bash scripts/build_vibiomir_method.sh 01_mgte_dense
 Script thực hiện hai bước:
 
 1. Tải/đọc đủ 13 shard, chunk và tạo `artifacts/full/01_mgte_dense/store.sqlite`.
+   Nếu store đã tồn tại và metadata khớp đúng corpus đã pin (revision, số dòng,
+   `store_format_version`), script tái sử dụng luôn thay vì prepare lại — bản
+   copy tạm 20+ GB có thể không vừa đĩa; `FORCE_PREPARE=1` ép tạo lại.
 2. Encode chunk và upsert collection versioned của method lên Qdrant.
 
-Collection production hiện được version theo method và corpus, ví dụ
-`${QDRANT_COLLECTION_PREFIX}_01_mgte_dense_13d60924_chunks`. Script không tự xóa collection cũ;
-point ID deterministic và state local cho phép resume. Manifest Qdrant ghi model/revision, corpus
-revision, chunker, vector size, distance, commit code, timestamp và kết quả sample search.
+Collection production hiện được version theo method, corpus và cấu hình nén, ví dụ
+`${QDRANT_COLLECTION_PREFIX}_01_mgte_dense_13d60924_int8_chunks`. `int8` là scalar
+quantization phía server: bản nén int8 được lưu **cạnh** vector float32 gốc (giảm RAM,
+tăng tốc search; **không** giảm dung lượng đĩa — đĩa vẫn cần ~17 GB cho cả corpus),
+và khi search mặc định rescore bằng vector gốc với oversampling 3 nên xếp hạng gần
+như không đổi. Script không tự xóa collection cũ; point ID deterministic và state
+local cho phép resume. Manifest Qdrant ghi model/revision, corpus revision, chunker,
+vector size, distance, cấu hình quantization, commit code, timestamp và kết quả sample
+search.
 
 BM25 không cần Qdrant:
 

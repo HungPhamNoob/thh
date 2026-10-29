@@ -39,6 +39,7 @@ def build_late_chunking_qdrant_index(
     timeout: float = 60.0,
     prefer_grpc: bool = False,
     upload_workers: int = 1,
+    quantization: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Encode each long document once and stream pooled chunk vectors to Qdrant."""
     if upload_workers > 1:
@@ -76,6 +77,7 @@ def build_late_chunking_qdrant_index(
                 "distance": distance,
                 "on_disk": on_disk,
                 "store_text_payload": store_text_payload,
+                "quantization": quantization,
             }
             state = _load_state(state_path)
             if recreate:
@@ -94,7 +96,12 @@ def build_late_chunking_qdrant_index(
             offset = int(state.get("offset", 0))
             if dimension:
                 ensure_collection(
-                    client, collection, dimension, distance=distance, on_disk=on_disk
+                    client,
+                    collection,
+                    dimension,
+                    distance=distance,
+                    on_disk=on_disk,
+                    quantization=quantization,
                 )
 
             seen = 0
@@ -115,6 +122,7 @@ def build_late_chunking_qdrant_index(
                         distance=distance,
                         recreate=recreate,
                         on_disk=on_disk,
+                        quantization=quantization,
                     )
                 elif int(vectors.shape[1]) != dimension:
                     raise ValueError("Late chunking dimension changed during indexing")

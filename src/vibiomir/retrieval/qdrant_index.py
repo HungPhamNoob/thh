@@ -26,6 +26,9 @@ class QdrantIndexRetriever(Retriever):
     timeout: float = 60.0
     prefer_grpc: bool = False
     overfetch_factor: int = 10
+    # Query-time quantization params (rescore with float32 originals recovers
+    # near-lossless ranking when the collection uses scalar int8 quantization).
+    query_quantization: dict[str, Any] | None = None
     _client: object | None = field(default=None, init=False, repr=False)
     _encoder: object | None = field(default=None, init=False, repr=False)
 
@@ -65,12 +68,25 @@ class QdrantIndexRetriever(Retriever):
             )
         fetch = k if allowed_ids is None else max(k, k * self.overfetch_factor)
         vector = np.asarray(self._encoder.encode_queries([query])[0], dtype=np.float32)
+        search_params = None
+        if self.query_quantization:
+            search_params = models.SearchParams(
+                quantization=models.QuantizationSearchParams(
+                    rescore=bool(self.query_quantization.get("rescore", True)),
+                    oversampling=(
+                        float(self.query_quantization["oversampling"])
+                        if self.query_quantization.get("oversampling")
+                        else None
+                    ),
+                )
+            )
         response = self._client.query_points(
             collection_name=resolve_collection_name(self.collection_name, self.prefix_env),
             query=vector.tolist(),
             query_filter=query_filter,
             limit=fetch,
             with_payload=True,
+            search_params=search_params,
         )
         output: list[SearchResult] = []
         for point in response.points:

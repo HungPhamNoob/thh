@@ -5,10 +5,20 @@ document_retrievers: []
 chunk_retrievers:
   - type: qdrant
     name: mgte_dense
-    collection_name: 01_mgte_dense_13d60924_chunks
+    collection_name: 01_mgte_dense_13d60924_int8_chunks
     state_dir: artifacts/full/01_mgte_dense/qdrant_state
     distance: cosine
     on_disk: true
+    # Scalar int8 quantization: stored alongside the float32 originals, so it
+    # cuts RAM and speeds up search without touching disk usage; retrieval
+    # rescores with the originals (near-lossless per Qdrant guidance).
+    quantization:
+      scalar:
+        quantile: 0.99
+        always_ram: false
+    query_quantization:
+      rescore: true
+      oversampling: 3
     # Exact text remains in SQLite; Qdrant stores the deterministic store_key.
     store_text_payload: false
     # gRPC sends binary vectors (~5x smaller than REST JSON) and 4 parallel
